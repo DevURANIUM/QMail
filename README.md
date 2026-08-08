@@ -1,399 +1,554 @@
 # QMail
 
-QMail یک پنل ایمیل self-hosted است که با Vue 3 و Cloudflare Workers ساخته شده است. ایمیل‌های ورودی از طریق Cloudflare Email Routing دریافت و داخل D1 ذخیره می‌شوند و ایمیل‌های خروجی با Brevo ارسال می‌شوند.
+A modern, self-hosted email management system built on Cloudflare Workers. Receive email on your custom domain, store messages in Cloudflare D1, and send email through Brevo — all from a responsive Vue 3 dashboard.
 
-## امکانات
+## Features
 
-- Inbox، Sent، جست‌وجو و نمایش کامل پیام
-- انتخاب چندتایی، حذف گروهی، خوانده/خوانده‌نشده و Star
-- نمایش HTML ایمیل و دانلود امن Attachment
-- تم روشن و تاریک و رابط واکنش‌گرا
-- تنظیم Cloudflare و Brevo از داخل پنل
-- محافظت پنل با رمز عبور
+- **Receive email:** Process incoming messages with Cloudflare Email Routing
+- **Send email:** Deliver outgoing messages through the Brevo Transactional Email API
+- **Bulk actions:** Select multiple messages, delete them, or mark them as read/unread
+- **Mark all as read:** Clear the unread inbox in one action
+- **Attachments:** Send, receive, and securely download attachments (up to 5 MB per incoming file)
+- **Modern interface:** Responsive Vue 3 UI with polished light and dark themes
+- **Message tools:** Search, star, filter, inspect sender details, and view HTML email
+- **Optional forwarding:** Forward a backup copy to a verified destination address
+- **Secure authentication:** PBKDF2 password hashing, token sessions, input validation, security headers, and rate limiting
+- **Serverless:** Runs on Cloudflare Workers with D1 storage and static assets
 
-## ساختار پروژه
+## Architecture
 
 ```text
-frontend/                         رابط Vue 3 + Vite
-packages/worker/                  Worker، API و schema دیتابیس D1
-packages/cloudflare-email-api/    کلاینت Cloudflare Email Routing
-packages/brevo-api/               کلاینت ارسال ایمیل Brevo
+Incoming email
+      │
+      ▼
+┌──────────────────────── Cloudflare ────────────────────────┐
+│                                                           │
+│  Email Routing ──▶ QMail Worker (Hono) ◀────▶ D1 Database │
+│                         │                                 │
+│                         ▼                                 │
+│                   Vue 3 Dashboard                         │
+│                                                           │
+└─────────────────────────┬─────────────────────────────────┘
+                          │
+                          ▼
+                     Brevo API
+                    Outgoing email
 ```
 
-فایل‌های build، دیتابیس محلی، توکن‌ها و تنظیمات شخصی Cloudflare عمداً داخل Repository قرار نمی‌گیرند.
+## Prerequisites
 
-## پیش‌نیازها
+Before you begin, make sure you have:
 
-- Node.js نسخه 18 یا جدیدتر
-- pnpm
-- حساب Cloudflare
-- دامنه‌ای که DNS آن روی Cloudflare فعال باشد
-- حساب Brevo برای ارسال ایمیل
+1. A **Cloudflare account** with an active domain
+2. A **Brevo account** for outgoing email
+3. **Node.js 18+**
+4. **pnpm**
 
-اگر pnpm نصب نیست:
+Enable pnpm through Corepack if it is not installed:
 
-```powershell
+```bash
 corepack enable
 corepack prepare pnpm@latest --activate
 ```
 
-بررسی نصب:
+Confirm the installation:
 
-```powershell
+```bash
 node --version
 pnpm --version
 ```
 
-## اجرای سریع روی سیستم شخصی
+## Quick Start
 
-در PowerShell وارد پوشه پروژه شوید:
+### 1. Clone and install
 
-```powershell
-cd C:\path\to\QMail
+```bash
+git clone https://github.com/YOUR_USERNAME/qmail.git
+cd qmail
 pnpm install
-Copy-Item packages\worker\wrangler.toml.example packages\worker\wrangler.toml
-pnpm build:frontend
-pnpm db:migrate
-pnpm dev
 ```
 
-سپس این آدرس را باز کنید:
+Replace `YOUR_USERNAME` with your GitHub username.
 
-```text
-http://localhost:8787
-```
+### 2. Create the local configuration
 
-دستور `pnpm db:migrate` فقط دیتابیس محلی Wrangler را می‌سازد و به دیتابیس Cloudflare دست نمی‌زند.
-
-برای Hot Reload رابط کاربری، `pnpm dev` را باز نگه دارید و در ترمینال دوم اجرا کنید:
+Windows PowerShell:
 
 ```powershell
-pnpm dev:frontend
+Copy-Item packages\worker\wrangler.toml.example packages\worker\wrangler.toml
 ```
 
-سپس `http://localhost:5173` را باز کنید. درخواست‌های `/api` به Worker روی پورت `8787` منتقل می‌شوند.
-
-در macOS و Linux به‌جای `Copy-Item` از این دستور استفاده کنید:
+macOS/Linux:
 
 ```bash
 cp packages/worker/wrangler.toml.example packages/worker/wrangler.toml
 ```
 
-## راه‌اندازی کامل Cloudflare
+### 3. Build and run locally
 
-### 1. اضافه‌کردن دامنه به Cloudflare
+```bash
+pnpm build:frontend
+pnpm db:migrate
+pnpm dev
+```
 
-دامنه باید در Cloudflare فعال باشد. اگر هنوز اضافه نشده است:
+Open `http://localhost:8787`.
 
-1. وارد Cloudflare Dashboard شوید.
-2. گزینه **Add a domain** را انتخاب کنید.
-3. دامنه را اضافه و Plan را انتخاب کنید.
-4. Name Serverهای نمایش‌داده‌شده را در پنل ثبت‌کننده دامنه جایگزین کنید.
-5. صبر کنید وضعیت Zone در Cloudflare به **Active** تغییر کند.
+`pnpm db:migrate` creates a local Wrangler D1 database. It does not change your production database.
 
-برای جلوگیری از دادن دسترسی اضافه، بهتر است دامنه قبل از اجرای Setup داخل Cloudflare فعال شده باشد.
+### Frontend hot reload
 
-### 2. ورود Wrangler به حساب Cloudflare
+Keep `pnpm dev` running, then start a second terminal:
 
-این ورود فقط برای ساخت D1 و Deploy کردن Worker است:
+```bash
+pnpm dev:frontend
+```
 
-```powershell
+Open `http://localhost:5173`. Vite proxies `/api` requests to the Worker on port `8787`.
+
+## Production Deployment
+
+### 1. Add your domain to Cloudflare
+
+1. Sign in to the Cloudflare Dashboard.
+2. Select **Add a domain**.
+3. Add your domain and choose a plan.
+4. Replace the domain's name servers at your registrar with the values Cloudflare provides.
+5. Wait until the zone status becomes **Active**.
+
+Adding the domain manually first allows you to create a least-privilege API token limited to that single zone.
+
+### 2. Authenticate Wrangler
+
+Wrangler authentication is used to create D1 resources and deploy the Worker. It is separate from the API token entered in QMail.
+
+```bash
 pnpm exec wrangler login
 pnpm exec wrangler whoami
 ```
 
-مرورگر باز می‌شود و باید دسترسی Wrangler را تأیید کنید. API Token پنل QMail که در مرحله بعد می‌سازیم، با این ورود فرق دارد.
+### 3. Create the D1 database
 
-### 3. ساخت دیتابیس D1
+From the project root:
 
-از ریشه پروژه اجرا کنید:
-
-```powershell
+```bash
 pnpm exec wrangler d1 create qmail-db
 ```
 
-Cloudflare یک `database_id` برمی‌گرداند. فایل نمونه را کپی کنید:
-
-```powershell
-Copy-Item packages\worker\wrangler.toml.example packages\worker\wrangler.toml
-```
-
-فایل `packages/worker/wrangler.toml` را باز کنید و مقدار صفر را با شناسه واقعی جایگزین کنید:
+Copy the example configuration if you have not already done so, then open `packages/worker/wrangler.toml` and replace the zero UUID with the real `database_id` returned by Cloudflare:
 
 ```toml
+name = "qmail"
+main = "src/index.ts"
+compatibility_date = "2026-08-09"
+
 [[d1_databases]]
 binding = "DB"
 database_name = "qmail-db"
 database_id = "YOUR_REAL_D1_DATABASE_ID"
+
+[assets]
+directory = "../../frontend/dist"
+
+[vars]
+APP_NAME = "QMail"
 ```
 
-نام Worker در همین فایل باید `qmail` باقی بماند، چون Setup برنامه Catch-all را به همین Worker وصل می‌کند:
+Keep the Worker name as `qmail`. The setup flow connects the Email Routing catch-all rule to a Worker with that name.
 
-```toml
-name = "qmail"
-```
+> `wrangler.toml` is gitignored. Never commit your real database ID or private configuration.
 
-فایل `wrangler.toml` در `.gitignore` قرار دارد و نباید در GitHub Commit شود.
+### 4. Initialize and deploy
 
-### 4. ساخت جدول‌های دیتابیس و Deploy
-
-```powershell
+```bash
 pnpm install
 pnpm build:frontend
 pnpm db:migrate:prod
 pnpm deploy
 ```
 
-در پایان، Wrangler آدرسی شبیه این نمایش می‌دهد:
+Wrangler returns a URL similar to:
 
 ```text
-https://qmail.YOUR-SUBDOMAIN.workers.dev
+https://qmail.YOUR_SUBDOMAIN.workers.dev
 ```
 
-این آدرس را باز کنید و رمز مدیر QMail را بسازید.
+Open the URL and create your QMail administrator password.
 
-### 5. فعال‌کردن Email Routing و ساخت رکوردهای دریافت ایمیل
+## Cloudflare Email Routing Setup
 
-از Cloudflare Dashboard وارد دامنه شوید و بخش **Email Routing** را باز کنید. در رابط جدید ممکن است مسیر آن **Compute & AI → Email Service → Email Routing** باشد.
+### Enable Email Routing and create DNS records
 
-1. گزینه **Enable Email Routing** یا **Get started** را بزنید.
-2. گزینه افزودن خودکار رکوردها را تأیید کنید.
-3. Cloudflare رکوردهای MX و TXT لازم را برای همان دامنه می‌سازد.
-4. در بخش Routing Rules مطمئن شوید Email Routing فعال است.
+Open your domain in Cloudflare and navigate to **Email Routing**. In the latest dashboard this may appear under **Compute & AI → Email Service → Email Routing**.
 
-می‌توانید رکوردهای موردنیاز را با CLI نیز مشاهده کنید:
+1. Select **Enable Email Routing** or **Get started**.
+2. Allow Cloudflare to add the required DNS records.
+3. Confirm that Email Routing is enabled.
+4. Open **Routing Rules** and verify that the service is ready.
 
-```powershell
+You can inspect the required records with Wrangler:
+
+```bash
 pnpm exec wrangler email routing dns get example.com
 ```
 
-به‌جای `example.com` دامنه خودتان را وارد کنید.
+Replace `example.com` with your domain.
 
-مقادیر MX را از اینترنت یا نمونه‌های پروژه کپی نکنید؛ رکوردهای دقیق تولیدشده توسط Cloudflare برای دامنه خودتان را استفاده کنید. اگر MX متعلق به سرویس ایمیل دیگری دارید، قبل از حذف یا جایگزینی آن مطمئن شوید دیگر به آن سرویس نیاز ندارید.
+> Do not copy MX priorities or values from a tutorial. Use the exact records generated by Cloudflare for your domain. Existing MX records may conflict with Email Routing.
 
-### 6. ساخت Cloudflare API Token مخصوص QMail
+## Cloudflare API Token
 
-این توکن توسط صفحه Setup برنامه برای پیدا کردن Zone، فعال‌سازی Email Routing، ساخت Catch-all Rule و در صورت انتخاب، ثبت مقصد Forward استفاده می‌شود.
+QMail uses a restricted Cloudflare API token to find your zone, enable Email Routing, manage routing rules, and optionally register a forwarding destination. This token does not deploy the Worker.
 
-1. وارد **Cloudflare Dashboard** شوید.
-2. روی آیکن پروفایل بروید و **My Profile** را باز کنید.
-3. وارد **API Tokens** شوید.
-4. روی **Create Token** بزنید.
-5. گزینه **Create Custom Token** را انتخاب کنید.
-6. نامی مثل `QMail Email Routing` وارد کنید.
+### Create the token
 
-Permissionهای پیشنهادی:
+1. Open the Cloudflare Dashboard.
+2. Go to **My Profile → API Tokens**.
+3. Select **Create Token**.
+4. Select **Create Custom Token**.
+5. Name it `QMail Email Routing`.
+6. Add the permissions below.
 
-| Scope | Permission | Level | دلیل |
-|---|---|---|---|
-| Zone | Zone | Read | پیدا کردن Zone ID دامنه |
-| Zone | Zone Settings | Edit | فعال‌کردن Email Routing |
-| Zone | Email Routing Rules | Edit | ساخت و اصلاح Catch-all و Routing Rules |
-| Account | Email Routing Addresses | Edit | ساخت مقصد Forward و ارسال ایمیل تأیید مقصد |
+### Required permissions
 
-در **Zone Resources** گزینه زیر را انتخاب کنید:
+| Scope | Permission | Access | Used for |
+|---|---|---:|---|
+| Zone | Zone | Read | Finding the zone and Zone ID |
+| Zone | Zone Settings | Edit | Enabling Email Routing |
+| Zone | Email Routing Rules | Edit | Creating and repairing the catch-all Worker rule |
+| Account | Email Routing Addresses | Edit | Registering an optional forwarding destination |
+
+Set the token resources to:
 
 ```text
-Include → Specific zone → دامنه خودتان
+Zone Resources:    Include → Specific zone → your domain
+Account Resources: Include → your Cloudflare account
 ```
 
-در **Account Resources** فقط حسابی را انتخاب کنید که دامنه در آن قرار دارد.
-
-موارد زیر برای توکن داخل QMail لازم نیستند:
+QMail does **not** need the following permissions for this token:
 
 - Workers Scripts Edit
 - D1 Edit
 - Account Settings Edit
-- Global API Key
-- DNS Edit، چون QMail رکورد DNS را مستقیماً ایجاد نمی‌کند
+- DNS Edit
+- Global API Key access
 
-اگر می‌خواهید خود برنامه دامنه‌ای را که هنوز در Cloudflare وجود ندارد ایجاد کند، دسترسی گسترده‌تری برای Zone creation لازم می‌شود. روش امن‌تر این است که دامنه را دستی به Cloudflare اضافه کنید و توکن را فقط به همان Zone محدود کنید.
+DNS records are created through the Cloudflare Email Routing onboarding screen, not through QMail.
 
-پس از ساخت، Token فقط یک‌بار نمایش داده می‌شود. همان لحظه آن را کپی کنید و داخل GitHub، سورس، Screenshot یا فایل `wrangler.toml` قرار ندهید.
+If you want QMail to add a completely new zone that does not exist in Cloudflare, broader zone-creation permission is required. The safer option is to add the domain manually and restrict the token to that zone.
 
-### 7. پیدا کردن Account ID
+Copy the token immediately after it is generated. Cloudflare does not display it again.
 
-داخل Cloudflare Dashboard دامنه را باز کنید. `Account ID` معمولاً در صفحه Overview یا بخش API در ستون کناری نمایش داده می‌شود. این مقدار Secret نیست، اما بهتر است بی‌دلیل منتشر نشود.
+### Find the Account ID
 
-### 8. واردکردن اطلاعات Cloudflare در QMail
+Open the domain overview in Cloudflare. The **Account ID** is usually displayed in the sidebar or API section of the overview page.
 
-در Setup برنامه این موارد را وارد کنید:
+### Enter Cloudflare settings in QMail
 
-- **Cloudflare API Token:** توکن محدود مرحله قبل
-- **Account ID:** شناسه حساب Cloudflare
-- **Domain:** فقط نام دامنه، مثل `example.com`؛ بدون `https://`
-- **Forwarding Email:** اختیاری؛ یک ایمیل پشتیبان برای دریافت نسخه Forward شده
+Open the QMail setup screen and enter:
 
-اگر Forwarding Email وارد کنید، Cloudflare یک ایمیل تأیید به آن آدرس می‌فرستد و باید لینک تأیید را باز کنید. مقصد تأییدنشده قابل استفاده نیست.
+| Field | Value |
+|---|---|
+| API Token | The restricted token created above |
+| Account ID | Your Cloudflare Account ID |
+| Domain | The bare domain, for example `example.com` |
+| Forwarding Email | Optional backup destination |
 
-QMail یک Catch-all Rule می‌سازد تا تمام آدرس‌های دامنه به Worker با نام `qmail` تحویل داده شوند. اگر نام Worker را در `wrangler.toml` عوض کرده‌اید، نام پیش‌فرض داخل Setup نیز باید با آن هماهنگ شود.
+If you provide a forwarding address, Cloudflare sends a verification message to it. Open the verification link before using that destination.
 
-برای بررسی دستی، در Cloudflare به **Email Routing → Routing Rules** بروید و مطمئن شوید Catch-all به Worker `qmail` متصل است.
+QMail creates a catch-all action that sends inbound email to the Worker named `qmail`. You can verify it under **Email Routing → Routing Rules**.
 
-## راه‌اندازی Brevo برای ارسال ایمیل
+## Brevo Setup
 
-Cloudflare Email Routing در این پروژه برای دریافت ایمیل است. ارسال ایمیل‌های QMail از طریق Brevo انجام می‌شود.
+Cloudflare Email Routing handles incoming email. QMail uses Brevo for outgoing transactional email.
 
-### 1. ساخت حساب Brevo
+### 1. Add and authenticate the sending domain
 
-1. در [Brevo](https://www.brevo.com/) حساب بسازید یا وارد شوید.
-2. اطلاعات حساب و ایمیل را تأیید کنید.
-3. اگر Brevo اطلاعات کسب‌وکار یا فرستنده را درخواست کرد، آن‌ها را کامل کنید.
+1. Sign in to [Brevo](https://www.brevo.com/).
+2. Open **Senders & IP → Domains** or **Senders, Domains & Dedicated IPs**.
+3. Select **Add a domain**.
+4. Enter the domain you will send from.
+5. Copy the DNS records generated by Brevo into **Cloudflare → DNS → Records**.
 
-### 2. اضافه و Authenticate کردن دامنه ارسال
+Depending on your account, Brevo may show records for:
 
-1. در Brevo وارد بخش **Senders & IP → Domains** یا صفحه **Senders, Domains & Dedicated IPs** شوید.
-2. گزینه **Add a domain** را بزنید.
-3. دامنه‌ای را وارد کنید که قرار است ایمیل از آن ارسال شود.
-4. Brevo رکوردهای DNS مخصوص همان دامنه را نمایش می‌دهد.
-5. رکوردها را دقیقاً در **Cloudflare → DNS → Records** اضافه کنید.
-
-Brevo معمولاً رکوردهای احراز دامنه مثل موارد زیر را نمایش می‌دهد، اما Name و Value دقیق را باید از پنل خود Brevo کپی کنید:
-
-- Brevo verification code
+- Brevo domain verification
 - DKIM
 - DMARC
-- رکوردهای تکمیلی که Brevo برای حساب شما نمایش می‌دهد
+- Additional sender authentication records
 
-نکات مهم رکوردها:
+Always use the exact names and values displayed in your Brevo account.
 
-- رکوردهای ایمیل باید **DNS only** باشند؛ Proxy نارنجی برای رکوردهای ایمیل کاربرد ندارد.
-- برای TXT مقدار داده‌شده را دقیق و بدون تغییر وارد کنید.
-- اگر از قبل رکورد DMARC دارید، رکورد دوم نسازید؛ همان رکورد موجود را با سیاست مناسب ادغام کنید.
-- اگر از قبل SPF دارید، دو SPF جدا برای یک Host نسازید؛ مقدارها باید در یک SPF معتبر ادغام شوند.
-- رکورد DKIM را دقیقاً با Selector و Value ارائه‌شده توسط Brevo بسازید.
+Important DNS rules:
 
-پس از افزودن رکوردها به Brevo برگردید و **Authenticate this email domain** یا **Verify** را بزنید. انتشار DNS ممکن است کمی زمان ببرد.
+- Email-related records must be **DNS only**.
+- Copy TXT values exactly.
+- Do not create two DMARC records for the same host.
+- Do not publish two separate SPF records for the same host; merge authorized senders into one valid SPF policy.
+- Preserve the exact DKIM selector and value generated by Brevo.
 
-### 3. ساخت Sender
+Return to Brevo and select **Authenticate this email domain** or **Verify**. DNS propagation can take some time.
 
-در Brevo بخش **Senders** را باز کنید و یک Sender مثل نمونه زیر بسازید:
+### 2. Create a sender
+
+Open **Senders** in Brevo and add an address on the authenticated domain, for example:
 
 ```text
 QMail <hello@example.com>
 ```
 
-آدرس فرستنده باید متعلق به دامنه Authenticateشده باشد. اگر Brevo ایمیل تأیید فرستاد، آن را تأیید کنید.
+Complete any sender verification requested by Brevo.
 
-### 4. ساخت Brevo API Key
+### 3. Create a Brevo API key
 
-1. وارد حساب Brevo شوید.
-2. روی نام حساب در بالا سمت راست کلیک کنید.
-3. وارد **SMTP & API** شوید.
-4. تب **API Keys** را باز کنید.
-5. روی **Generate a new API key** بزنید.
-6. نامی مانند `QMail Production` وارد کنید.
-7. Key را همان لحظه کپی و در Password Manager ذخیره کنید.
+1. Click your account name in Brevo.
+2. Open **SMTP & API**.
+3. Select the **API Keys** tab.
+4. Select **Generate a new API key**.
+5. Name it `QMail Production`.
+6. Copy and securely store the key immediately.
 
-Brevo کلید را بعد از بستن پنجره دوباره به‌صورت کامل نمایش نمی‌دهد. اگر آن را گم کردید، کلید قبلی را حذف و یک کلید جدید بسازید.
+Brevo displays the full API key only once. If it is lost, delete it and create a replacement.
 
-برای بررسی اختیاری Key می‌توانید از API رسمی Brevo استفاده کنید، اما Key را مستقیماً داخل command history قرار ندهید. QMail هنگام Setup با endpoint حساب Brevo اعتبار Key را بررسی می‌کند.
+### 4. Connect Brevo to QMail
 
-### 5. واردکردن Brevo API Key در QMail
+Enter the API key in the Brevo step of the QMail setup flow. QMail validates it against the Brevo account endpoint.
 
-در مرحله Brevo از Setup برنامه، API Key را وارد کنید و ادامه دهید. سپس در Settings → Email Addresses آدرس‌های فرستنده‌ای را اضافه کنید که در Brevo معتبر هستند.
+After setup, open **Settings → Addresses** and add the sender addresses that are authorized in Brevo.
 
-اگر ارسال خطا داد، این موارد را بررسی کنید:
+## Recommended Setup Order
 
-- دامنه در Brevo وضعیت Authenticated داشته باشد.
-- Sender در Brevo ساخته و تأیید شده باشد.
-- From Address داخل QMail دقیقاً روی همان دامنه باشد.
-- API Key حذف یا غیرفعال نشده باشد.
-- محدودیت حساب یا اعتبار ارسال Brevo تمام نشده باشد.
+1. Add and activate the domain in Cloudflare.
+2. Authenticate Wrangler.
+3. Create D1 and place its ID in `wrangler.toml`.
+4. Apply the remote database schema.
+5. Build and deploy the Worker as `qmail`.
+6. Enable Cloudflare Email Routing and add its DNS records.
+7. Create the restricted Cloudflare API token.
+8. Authenticate the domain and sender in Brevo.
+9. Create the Brevo API key.
+10. Open QMail and complete the setup wizard.
+11. Test one real incoming and one real outgoing message.
 
-## ترتیب پیشنهادی نصب Production
+## Usage
 
-برای اینکه Setup بدون خطا تمام شود، این ترتیب را رعایت کنید:
+### Receiving email
 
-1. دامنه را روی Cloudflare فعال کنید.
-2. با Wrangler وارد حساب شوید.
-3. D1 را بسازید و `database_id` را در `wrangler.toml` قرار دهید.
-4. schema دیتابیس را اعمال کنید.
-5. QMail را با نام Worker برابر `qmail` Deploy کنید.
-6. Email Routing و رکوردهای Cloudflare را فعال کنید.
-7. Cloudflare API Token محدود را بسازید.
-8. دامنه را در Brevo Authenticate و Sender را ایجاد کنید.
-9. Brevo API Key را بسازید.
-10. آدرس QMail را باز و Setup داخل برنامه را کامل کنید.
-11. یک ایمیل ورودی و یک ایمیل خروجی واقعی آزمایش کنید.
+With the catch-all rule enabled, email sent to addresses on your domain is:
 
-## تست دریافت و ارسال
+1. Received by Cloudflare Email Routing
+2. Delivered to the QMail Worker
+3. Parsed with `postal-mime`
+4. Stored in D1
+5. Optionally forwarded to a verified backup address
 
-### تست دریافت
+### Sending email
 
-از یک سرویس دیگر به آدرسی مثل `test@example.com` ایمیل بفرستید. چون Catch-all فعال است، پیام باید در Inbox ظاهر شود.
+1. Select **Compose**.
+2. Choose an authorized From address.
+3. Enter the recipient, subject, and message.
+4. Add attachments if needed.
+5. Select **Send**.
 
-برای دیدن Log زنده Worker:
+### Managing messages
 
-```powershell
+- Search the inbox or sent messages
+- Filter all, unread, or starred email
+- Select one or multiple messages
+- Mark selected messages read or unread
+- Mark the full inbox as read
+- Delete selected messages
+- Star important messages
+- Switch between light and dark themes
+
+## Development
+
+### Commands
+
+```bash
+# Worker development server
+pnpm dev
+
+# Vue development server
+pnpm dev:frontend
+
+# Build every workspace package
+pnpm build
+
+# Build only the frontend
+pnpm build:frontend
+
+# Initialize local D1
+pnpm db:migrate
+
+# Initialize production D1
+pnpm db:migrate:prod
+
+# Deploy to Cloudflare
+pnpm deploy
+```
+
+### Project structure
+
+```text
+qmail/
+├── frontend/
+│   ├── public/
+│   └── src/
+│       ├── api/             API client and shared types
+│       ├── router/          Vue Router
+│       ├── stores/          Pinia stores
+│       └── views/           Application pages
+│
+├── packages/
+│   ├── worker/
+│   │   └── src/
+│   │       ├── api/         Hono API routes
+│   │       ├── db/          D1 schema and queries
+│   │       ├── lib/         Validation, hashing and rate limiting
+│   │       └── email-handler.ts
+│   ├── cloudflare-email-api/
+│   └── brevo-api/
+│
+├── package.json
+├── pnpm-workspace.yaml
+└── README.md
+```
+
+## Security
+
+### Implemented protections
+
+- PBKDF2-SHA256 password hashing with 100,000 iterations and a random salt
+- Authentication tokens stored as hashes in D1
+- Login rate limit: 5 attempts per 15 minutes per client IP
+- Initial password setup rate limit: 3 attempts per hour per client IP
+- Protected email, settings, and setup endpoints
+- Security headers including frame denial and MIME sniffing protection
+- Email, domain, password, UUID, file-size, and content-type validation
+- Sanitized attachment filenames and authenticated attachment downloads
+- Escaped user text when composing HTML email
+
+### Production recommendations
+
+1. Use a strong, unique administrator password.
+2. Enable two-factor authentication on Cloudflare, Brevo, and GitHub.
+3. Use a Cloudflare API token restricted to the required account and zone.
+4. Never commit `wrangler.toml`, `.dev.vars`, `.env`, `.wrangler`, API keys, or D1 exports.
+5. Rotate Cloudflare and Brevo credentials immediately if they are exposed.
+6. Regularly update dependencies and export D1 backups.
+7. Review `git status` before every push.
+
+## Troubleshooting
+
+### Email is not received
+
+1. Confirm that the domain is Active in Cloudflare.
+2. Check the MX/TXT records shown by Email Routing.
+3. Confirm that Email Routing is enabled.
+4. Confirm that the catch-all rule targets the `qmail` Worker.
+5. Confirm that the remote D1 schema has been applied.
+6. Inspect live Worker logs:
+
+```bash
 pnpm --filter @avamail/worker tail
 ```
 
-### تست ارسال
+### Cloudflare setup fails
 
-در QMail یک From Address معتبر انتخاب کنید و به ایمیلی که خودتان کنترل می‌کنید پیام بفرستید. پوشه Spam و وضعیت Transactional Logs در Brevo را هم بررسی کنید.
+- Make sure the token includes Zone Read, Zone Settings Edit, Email Routing Rules Edit, and Email Routing Addresses Edit.
+- Confirm that the token includes the correct account and zone resources.
+- Confirm that the Account ID belongs to the account containing the domain.
+- Wait for the domain zone to become Active.
 
-## خطاهای رایج
+### Email cannot be sent
 
-### ایمیل وارد Inbox نمی‌شود
+- Verify the Brevo API key.
+- Confirm that the domain is authenticated in Brevo.
+- Confirm that the From address is an authorized sender.
+- Check Brevo transactional logs, account limits, and available sending credit.
+- Recheck DKIM, DMARC, and SPF for conflicts.
 
-- MXهای Cloudflare کامل نیستند یا MX قدیمی با آن‌ها تداخل دارد.
-- Email Routing فعال نشده است.
-- Catch-all به Worker `qmail` متصل نیست.
-- نام Worker با نام داخل Routing Rule یکسان نیست.
-- schema دیتابیس remote اجرا نشده است.
+### `no such table` or D1 errors
 
-### خطای Cloudflare در Setup
+Local database:
 
-- Token به Zone اشتباه محدود شده است.
-- یکی از Permissionهای Zone Read، Zone Settings Edit، Email Routing Rules Edit یا Email Routing Addresses Edit وجود ندارد.
-- Account ID متعلق به حساب دیگری است.
-- دامنه هنوز در Cloudflare Active نشده است.
-
-### خطای Brevo در Setup یا ارسال
-
-- API Key اشتباه، حذف‌شده یا ناقص است.
-- دامنه یا Sender در Brevo Authenticate نشده است.
-- From Address با Sender معتبر هماهنگ نیست.
-- DNS هنوز منتشر نشده یا SPF/DKIM/DMARC اشتباه است.
-
-### خطای D1 یا `no such table`
-
-برای محیط محلی:
-
-```powershell
+```bash
 pnpm db:migrate
 ```
 
-برای دیتابیس Cloudflare:
+Production database:
 
-```powershell
+```bash
 pnpm db:migrate:prod
 ```
 
-## به‌روزرسانی و Deploy مجدد
+### Login is rate limited
 
-بعد از تغییر سورس:
+Wait 15 minutes after five failed login attempts. Setup is limited to three attempts per hour.
 
-```powershell
+## API Reference
+
+All email, settings, and setup modification endpoints require an authenticated Bearer token.
+
+### Authentication
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/auth/status` | Check setup and authentication status |
+| `POST` | `/api/auth/setup` | Create the initial administrator password |
+| `POST` | `/api/auth/login` | Sign in |
+| `POST` | `/api/auth/logout` | Sign out and revoke the current session |
+| `POST` | `/api/auth/change-password` | Change the administrator password |
+
+### Email
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/emails` | List and paginate messages |
+| `GET` | `/api/emails/stats` | Return inbox statistics |
+| `POST` | `/api/emails/bulk` | Read, unread, delete, or mark all read |
+| `POST` | `/api/emails/send` | Send a message through Brevo |
+| `GET` | `/api/emails/:id` | Return a message and attachment metadata |
+| `POST` | `/api/emails/:id/read` | Mark a message as read |
+| `POST` | `/api/emails/:id/unread` | Mark a message as unread |
+| `POST` | `/api/emails/:id/star` | Toggle the starred state |
+| `DELETE` | `/api/emails/:id` | Delete a message |
+| `GET` | `/api/emails/:emailId/attachments/:attachmentId` | Download an attachment |
+
+### Setup
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/setup/status` | Return setup status |
+| `POST` | `/api/setup/cloudflare` | Configure Cloudflare Email Routing |
+| `POST` | `/api/setup/cloudflare/worker-routing` | Repair the Worker catch-all rule |
+| `POST` | `/api/setup/brevo` | Validate and store the Brevo API key |
+| `GET` | `/api/setup/brevo/senders` | List Brevo senders |
+| `GET` | `/api/setup/addresses` | List managed From addresses |
+| `POST` | `/api/setup/addresses` | Add a managed From address |
+| `DELETE` | `/api/setup/addresses/:id` | Delete a managed From address |
+| `POST` | `/api/setup/complete` | Complete the setup wizard |
+
+### Health
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/health` | Return Worker health and current timestamp |
+
+## Updating QMail
+
+After pulling changes:
+
+```bash
 pnpm install
 pnpm build:frontend
 pnpm deploy
 ```
 
-اگر schema دیتابیس تغییر کرده است، قبل از Deploy روی دیتابیس remote نیز migration را اجرا کنید.
+If the database schema changed, apply the production migration before deploying.
 
-## امنیت
-
-- `wrangler.toml`، `.dev.vars`، `.env`، پوشه `.wrangler`، API Key و Export دیتابیس را Commit نکنید.
-- از Global API Key کلودفلر استفاده نکنید؛ Custom API Token محدود بسازید.
-- Cloudflare Token را فقط به حساب و Zone موردنیاز محدود کنید.
-- Brevo API Key و Cloudflare Token را مثل رمز عبور نگهداری کنید و در Screenshot یا Issue منتشر نکنید.
-- Credentialهای Setup در D1 ذخیره می‌شوند؛ دسترسی به Dashboard و حساب Cloudflare را با رمز قوی و 2FA محافظت کنید.
-- اگر کلیدی افشا شد، فوراً آن را Revoke و کلید جدید ایجاد کنید.
-- قبل از Push همیشه `git status` را بررسی کنید.
-
-## منابع رسمی
+## Official Documentation
 
 - [Cloudflare Email Routing](https://developers.cloudflare.com/email-routing/)
 - [Cloudflare Email Routing API](https://developers.cloudflare.com/api/resources/email_routing/)
