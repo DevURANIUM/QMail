@@ -1,0 +1,21 @@
+{
+  "name": "qmail",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Self-hosted email dashboard using Cloudflare Email Routing and Brevo",
+  "scripts": {
+    "dev": "pnpm --filter @avamail/worker dev",
+    "dev:frontend": "pnpm --filter @avamail/frontend dev",
+    "build": "pnpm -r build",
+    "build:frontend": "pnpm --filter @avamail/frontend build",
+    "deploy": "pnpm --filter @avamail/worker run deploy",
+    "db:migrate": "pnpm --filter @avamail/worker db:migrate",
+    "db:migrate:prod": "pnpm --filter @avamail/worker db:migrate:prod"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "devDependencies": {
+    "wrangler": "^4"
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "name": "@avamail/worker",
+  "version": "1.0.0",
+  "description": "QMail Cloudflare Worker backend",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "npx wrangler dev",
+    "deploy": "npx wrangler deploy",
+    "db:migrate": "npx wrangler d1 execute qmail-db --local --file=./src/db/schema.sql",
+    "db:migrate:prod": "npx wrangler d1 execute qmail-db --remote --file=./src/db/schema.sql",
+    "tail": "npx wrangler tail"
+  },
+  "dependencies": {
+    "@avamail/cloudflare-email-api": "workspace:*",
+    "@avamail/brevo-api": "workspace:*",
+    "hono": "^4.1.0",
+    "postal-mime": "^2.2.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20240117.0",
+    "typescript": "^5.3.3"
+  }
+}

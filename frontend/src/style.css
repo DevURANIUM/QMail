@@ -1,0 +1,210 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  @apply bg-gray-50 text-gray-900 transition-colors duration-200 antialiased;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+:root { color-scheme: light; }
+.dark {
+  color-scheme: dark;
+  --qm-bg:#070b14;
+  --qm-surface:rgba(15,23,42,.84);
+  --qm-border:rgba(148,163,184,.16);
+  --qm-text:#f4f7fb;
+  --qm-muted:#94a3b8;
+}
+
+#app { min-height: 100vh; }
+
+.qm-page { @apply min-h-screen p-4 sm:p-6 lg:p-8; }
+.qm-container { @apply w-full max-w-7xl mx-auto; }
+.qm-card { @apply bg-white border border-gray-200 shadow-sm rounded-2xl; }
+.qm-title { @apply text-2xl font-bold tracking-tight text-gray-900; }
+.qm-subtitle { @apply mt-1 text-sm text-gray-500; }
+.qm-button { @apply inline-flex items-center justify-center gap-2 px-3.5 py-2 text-sm font-semibold text-gray-700 bg-white border border-gray-300 rounded-xl hover:bg-gray-50 disabled:opacity-50; }
+.qm-button-primary { @apply inline-flex items-center justify-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-primary-600 border border-primary-600 rounded-xl hover:bg-primary-700 disabled:opacity-50; }
+.qm-input { @apply w-full px-3.5 py-2.5 text-sm bg-white border border-gray-300 rounded-xl focus:border-primary-500; }
+
+.dark .qm-card { background:#101827; border-color:#243149; }
+.dark .qm-button { background:#131e30; border-color:#33445f; color:#dbe7f7; }
+.dark .qm-button:hover { background:#1b2a42; }
+.dark .qm-input { background:#101827; border-color:#33445f; color:#f8fafc; }
+
+/* Definitive QMail dark surface rules. Keep these global: Vue scoped styles
+   cannot reliably reach the html.dark ancestor. */
+.dark .app-shell,
+.dark main,
+.dark .qm-page {
+  background:
+    radial-gradient(circle at 14% 7%,rgba(99,102,241,.15),transparent 29%),
+    radial-gradient(circle at 88% 14%,rgba(37,99,235,.10),transparent 26%),
+    linear-gradient(145deg,#070b14 0%,#09111f 50%,#070c16 100%) !important;
+}
+.dark .app-shell { min-height:100vh; }
+.dark .qm-card {
+  background:linear-gradient(145deg,rgba(19,29,49,.96),rgba(11,18,31,.94)) !important;
+  border-color:rgba(129,140,248,.18) !important;
+  box-shadow:0 18px 45px rgba(0,0,0,.24),inset 0 1px 0 rgba(255,255,255,.04) !important;
+}
+.dark .qm-card:hover {
+  border-color:rgba(129,140,248,.36) !important;
+  box-shadow:0 24px 58px rgba(0,0,0,.32),0 0 35px rgba(79,70,229,.06) !important;
+}
+.dark .qm-title,.dark h1,.dark h2,.dark h3 { color:#f4f7fb !important; }
+.dark .divide-gray-200 > :not([hidden]) ~ :not([hidden]) { border-color:rgba(148,163,184,.13) !important; }
+
+.dark body {
+  background:#070b14 !important;
+  color:#f4f7fb !important;
+}
+
+.dark .bg-white { @apply bg-gray-900; }
+.dark .bg-gray-50 { @apply bg-gray-950; }
+.dark .bg-gray-100 { @apply bg-gray-800; }
+.dark .border-gray-200 { @apply border-gray-800; }
+.dark .border-gray-300 { @apply border-gray-700; }
+.dark .text-gray-900 { @apply text-gray-100; }
+.dark .text-gray-700 { @apply text-gray-300; }
+.dark .text-gray-600 { @apply text-gray-400; }
+.dark .text-gray-500 { @apply text-gray-400; }
+.dark .hover\:bg-gray-50:hover { @apply bg-gray-800; }
+.dark .hover\:bg-gray-100:hover { @apply bg-gray-800; }
+.dark input, .dark textarea, .dark select {
+  @apply bg-gray-900 border-gray-700 text-gray-100 placeholder-gray-500;
+}
+
+/* Inbox selection state lives here (not in scoped component CSS) so the
+   html.dark ancestor is always matched after Vue adds scope attributes. */
+.dark .selection-toolbar {
+  background: linear-gradient(135deg, #10213d 0%, #142c50 100%) !important;
+  border-color: #31598f !important;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .22) !important;
+}
+
+.dark .selection-toolbar .selection-count {
+  color: #dbeafe !important;
+}
+
+.dark .selection-toolbar .toolbar-btn {
+  background: #1b2b44 !important;
+  border-color: #415574 !important;
+  color: #e5edf8 !important;
+}
+
+.dark .selection-toolbar .toolbar-btn:hover {
+  background: #263b5c !important;
+  border-color: #5f7ca5 !important;
+}
+
+.dark .email-row.is-selected {
+  background: #132b4f !important;
+  box-shadow: inset 4px 0 0 #60a5fa !important;
+}
+
+.dark .email-row:hover {
+  background: #172235 !important;
+}
+
+.dark .email-row.is-selected:hover {
+  background: #193762 !important;
+}
+
+.dark .email-row.is-selected + .email-row {
+  border-top-color: #29466f !important;
+}
+
+.dark .email-row.is-selected p:first-child {
+  color: #eff6ff !important;
+}
+
+.dark .email-row.is-selected p,
+.dark .email-row.is-selected time,
+.dark .email-row.is-selected span:not(.sender-avatar) {
+  color: #a9c5e8 !important;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-gray-100;
+}
+
+.dark ::-webkit-scrollbar-track { @apply bg-gray-900; }
+.dark ::-webkit-scrollbar-thumb { @apply bg-gray-700; }
+
+::-webkit-scrollbar-thumb {
+  @apply bg-gray-300 rounded;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-gray-400;
+}
+
+/* Email content styles */
+.email-content {
+  @apply max-w-none text-sm leading-relaxed;
+}
+
+.email-content img {
+  max-width: 100%;
+  height: auto;
+}
+
+button, a, input, select { @apply transition-colors duration-150; }
+
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible {
+  @apply outline-none ring-2 ring-primary-500 ring-offset-2;
+}
+
+.dark button:focus-visible, .dark a:focus-visible, .dark input:focus-visible, .dark select:focus-visible {
+  @apply ring-offset-gray-950;
+}
+
+/* Loading spinner */
+.spinner {
+  @apply animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600;
+}
+
+/* Component dark variants consolidated in one place. */
+.dark .mobile-bar { background:rgba(7,13,24,.94) !important; border-color:#1e293b !important; backdrop-filter:blur(16px); }
+.dark .login-page { background:radial-gradient(circle at 15% 20%,rgba(79,70,229,.18),transparent 32%),radial-gradient(circle at 85% 80%,rgba(37,99,235,.1),transparent 28%),#070b14 !important; }
+.dark .login-card { background:rgba(15,23,42,.9) !important; border-color:rgba(129,140,248,.2) !important; box-shadow:0 30px 90px rgba(0,0,0,.45) !important; }
+.dark .setup-banner { background:linear-gradient(135deg,#332713,#251d12) !important; border-color:#684d19 !important; }
+.dark .setup-banner p { color:#fde68a !important; }
+.dark .stat-icon { filter:saturate(.9) brightness(.9); }
+.dark .stat-card:nth-child(1){border-color:rgba(129,140,248,.28)!important}.dark .stat-card:nth-child(2){border-color:rgba(96,165,250,.24)!important}.dark .stat-card:nth-child(3){border-color:rgba(251,191,36,.2)!important}.dark .stat-card:nth-child(4){border-color:rgba(52,211,153,.2)!important}
+.dark .service-row { color:#cbd5e1 !important; }
+.dark .status-pill,.dark .ok { background:rgba(16,185,129,.16) !important; color:#6ee7b7 !important; }
+.dark .off { background:rgba(148,163,184,.13) !important; color:#cbd5e1 !important; }
+.dark .sender-avatar { background:#1e3a5f !important; color:#bfdbfe !important; }
+.dark .sent-row:hover { background:#172235 !important; }
+.dark .sent-avatar { background:#252a57; color:#c7d2fe; }
+.dark .bulk-delete { background:#421923 !important; border-color:#7f1d2d !important; color:#fecaca !important; }
+.dark .bulk-delete:hover { background:#5b1d2b !important; }
+.dark .clear-selection { color:#bfdbfe; background:rgba(255,255,255,.06); }
+.dark .clear-selection:hover { background:rgba(255,255,255,.12); color:#fff; }
+.dark .email-actions { background:#101827; border-color:#243149; }
+.dark .details-panel,.dark .text-preview,.dark .message-area { background:#0b1220 !important; }
+.dark .email-preview { border-color:#334155; }
+
+/* Alert/status surfaces that appear in Setup and Settings. Attribute selectors
+   avoid coupling Tailwind utility generation to theme overrides. */
+.dark [class~="bg-red-50"] { background:#35141c !important; }
+.dark [class~="bg-red-50"] p { color:#fecaca !important; }
+.dark [class~="bg-green-50"] { background:#0d2b24 !important; }
+.dark [class~="bg-green-50"] p { color:#a7f3d0 !important; }
+.dark [class~="bg-blue-50"] { background:#102440 !important; }
+.dark [class~="bg-blue-50"] p,.dark [class~="bg-blue-50"] h3 { color:#bfdbfe !important; }
+.dark [class~="bg-yellow-50"] { background:#332713 !important; }
+.dark [class~="bg-yellow-50"] p,.dark [class~="bg-yellow-50"] h3 { color:#fde68a !important; }
+
+@media (prefers-reduced-motion: reduce) {
+  *,*::before,*::after { scroll-behavior:auto!important; animation-duration:.01ms!important; animation-iteration-count:1!important; transition-duration:.01ms!important; }
+}
