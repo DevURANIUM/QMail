@@ -62,12 +62,10 @@ pnpm --version
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/qmail.git
+git clone https://github.com/DevURANIUM/qmail.git
 cd qmail
 pnpm install
 ```
-
-Replace `YOUR_USERNAME` with your GitHub username.
 
 ### 2. Create the local Wrangler configuration
 
