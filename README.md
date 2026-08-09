@@ -51,19 +51,7 @@ Dependencies are installed by the `pnpm install` command above. Continue with th
 
 ### 1. Create the Wrangler configuration
 
-PowerShell:
-
-```powershell
-Copy-Item packages\worker\wrangler.toml.example packages\worker\wrangler.toml
-```
-
-Windows Command Prompt:
-
-```bat
-copy packages\worker\wrangler.toml.example packages\worker\wrangler.toml
-```
-
-macOS or Linux:
+Linux:
 
 ```bash
 cp packages/worker/wrangler.toml.example packages/worker/wrangler.toml
@@ -92,8 +80,8 @@ The command returns a D1 `database_id`. Do not publish this ID with your reposit
 
 Copy the example configuration:
 
-```powershell
-Copy-Item packages\worker\wrangler.toml.example packages\worker\wrangler.toml
+```bash
+cp packages/worker/wrangler.toml.example packages/worker/wrangler.toml
 ```
 
 Open `packages/worker/wrangler.toml` and replace the zero UUID with the ID returned by the previous command:
