@@ -1,6 +1,6 @@
 name = "qmail"
 main = "src/index.ts"
-compatibility_date = "2026-08-09"
+compatibility_date = "2026-08-01"
 
 # This zero UUID is safe for local development. Replace it with the ID returned by:
 # pnpm exec wrangler d1 create qmail-db

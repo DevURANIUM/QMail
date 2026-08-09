@@ -1,5 +1,5 @@
 {
-  "name": "@avamail/cloudflare-email-api",
+  "name": "@qmail/cloudflare-email-api",
   "version": "1.0.0",
   "description": "Cloudflare Email Routing API wrapper",
   "main": "dist/index.js",

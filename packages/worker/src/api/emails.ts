@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { DatabaseQueries } from '../db/queries';
-import { BrevoAPI } from '@avamail/brevo-api';
+import { BrevoAPI } from '@qmail/brevo-api';
 import { generateId } from '../lib/utils';
 
 export interface Env {

@@ -4,13 +4,14 @@
   "private": true,
   "description": "Self-hosted email dashboard using Cloudflare Email Routing and Brevo",
   "scripts": {
-    "dev": "pnpm --filter @avamail/worker dev",
-    "dev:frontend": "pnpm --filter @avamail/frontend dev",
-    "build": "pnpm -r build",
-    "build:frontend": "pnpm --filter @avamail/frontend build",
-    "deploy": "pnpm --filter @avamail/worker run deploy",
-    "db:migrate": "pnpm --filter @avamail/worker db:migrate",
-    "db:migrate:prod": "pnpm --filter @avamail/worker db:migrate:prod"
+    "dev": "pnpm run build:libs && pnpm --filter @qmail/worker dev",
+    "dev:frontend": "pnpm --filter @qmail/frontend dev",
+    "build": "pnpm run build:libs && pnpm run build:frontend",
+    "build:libs": "pnpm --filter @qmail/brevo-api build && pnpm --filter @qmail/cloudflare-email-api build",
+    "build:frontend": "pnpm --filter @qmail/frontend build",
+    "deploy": "pnpm run build && pnpm --filter @qmail/worker run deploy",
+    "db:migrate": "pnpm --filter @qmail/worker db:migrate",
+    "db:migrate:prod": "pnpm --filter @qmail/worker db:migrate:prod"
   },
   "engines": {
     "node": ">=18.0.0"

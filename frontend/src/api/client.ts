@@ -16,15 +16,15 @@ class ApiClient {
   private token: string | null = null;
 
   constructor() {
-    this.token = localStorage.getItem('avamail_token');
+    this.token = localStorage.getItem('qmail_token');
   }
 
   setToken(token: string | null) {
     this.token = token;
     if (token) {
-      localStorage.setItem('avamail_token', token);
+      localStorage.setItem('qmail_token', token);
     } else {
-      localStorage.removeItem('avamail_token');
+      localStorage.removeItem('qmail_token');
     }
   }
 

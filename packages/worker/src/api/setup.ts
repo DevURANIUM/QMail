@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { DatabaseQueries } from '../db/queries';
-import { CloudflareEmailAPI } from '@avamail/cloudflare-email-api';
-import { BrevoAPI } from '@avamail/brevo-api';
+import { CloudflareEmailAPI } from '@qmail/cloudflare-email-api';
+import { BrevoAPI } from '@qmail/brevo-api';
 import { generateId } from '../lib/utils';
 
 export interface Env {

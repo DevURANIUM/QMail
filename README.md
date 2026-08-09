@@ -72,6 +72,12 @@ Replace `YOUR_USERNAME` with your GitHub username.
 
 ### 2. Create the local configuration
 
+Windows Command Prompt (`cmd.exe`):
+
+```bat
+copy packages\worker\wrangler.toml.example packages\worker\wrangler.toml
+```
+
 Windows PowerShell:
 
 ```powershell
@@ -87,7 +93,7 @@ cp packages/worker/wrangler.toml.example packages/worker/wrangler.toml
 ### 3. Build and run locally
 
 ```bash
-pnpm build:frontend
+pnpm run build
 pnpm db:migrate
 pnpm dev
 ```
@@ -135,12 +141,12 @@ From the project root:
 pnpm exec wrangler d1 create qmail-db
 ```
 
-Copy the example configuration if you have not already done so, then open `packages/worker/wrangler.toml` and replace the zero UUID with the real `database_id` returned by Cloudflare:
+Copy the example configuration if you have not already done so. In Command Prompt use `copy`; in PowerShell use `Copy-Item`. Then open `packages/worker/wrangler.toml` and replace the zero UUID with the real `database_id` returned by Cloudflare:
 
 ```toml
 name = "qmail"
 main = "src/index.ts"
-compatibility_date = "2026-08-09"
+compatibility_date = "2026-08-01"
 
 [[d1_databases]]
 binding = "DB"
@@ -162,9 +168,9 @@ Keep the Worker name as `qmail`. The setup flow connects the Email Routing catch
 
 ```bash
 pnpm install
-pnpm build:frontend
+pnpm run build
 pnpm db:migrate:prod
-pnpm deploy
+pnpm run deploy
 ```
 
 Wrangler returns a URL similar to:
@@ -372,10 +378,10 @@ pnpm dev
 # Vue development server
 pnpm dev:frontend
 
-# Build every workspace package
+# Build the internal API libraries and frontend
 pnpm build
 
-# Build only the frontend
+# Build only the frontend (not enough by itself for deployment)
 pnpm build:frontend
 
 # Initialize local D1
@@ -384,8 +390,8 @@ pnpm db:migrate
 # Initialize production D1
 pnpm db:migrate:prod
 
-# Deploy to Cloudflare
-pnpm deploy
+# Build everything and deploy to Cloudflare
+pnpm run deploy
 ```
 
 ### Project structure
@@ -451,7 +457,7 @@ qmail/
 6. Inspect live Worker logs:
 
 ```bash
-pnpm --filter @avamail/worker tail
+pnpm --filter @qmail/worker tail
 ```
 
 ### Cloudflare setup fails
@@ -542,8 +548,7 @@ After pulling changes:
 
 ```bash
 pnpm install
-pnpm build:frontend
-pnpm deploy
+pnpm run deploy
 ```
 
 If the database schema changed, apply the production migration before deploying.
@@ -558,4 +563,3 @@ If the database schema changed, apply the production migration before deploying.
 - [Brevo API key authentication](https://developers.brevo.com/docs/api-key-authentication)
 - [Brevo senders and domains](https://developers.brevo.com/docs/getting-started-with-senders-and-domains)
 - [Brevo domain authentication](https://developers.brevo.com/docs/domain-authentication-and-verification)
-

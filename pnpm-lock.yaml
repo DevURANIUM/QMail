@@ -66,10 +66,10 @@ importers:
 
   packages/worker:
     dependencies:
-      '@avamail/brevo-api':
+      '@qmail/brevo-api':
         specifier: workspace:*
         version: link:../brevo-api
-      '@avamail/cloudflare-email-api':
+      '@qmail/cloudflare-email-api':
         specifier: workspace:*
         version: link:../cloudflare-email-api
       hono:
