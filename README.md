@@ -2,6 +2,12 @@
 
 QMail is a modern, self-hosted email dashboard built on Cloudflare Workers. It receives email through Cloudflare Email Routing, stores messages in Cloudflare D1, and sends transactional email through Brevo.
 
+## Credits and Project History
+
+QMail is based on the original [AvaMail project by MrOplus](https://github.com/MrOplus/AvaMail). We forked the original project and developed it further with our own design direction, extensive UI and theme improvements, QMail branding, inbox and sent-message bulk actions, enhanced search and filtering, dark mode, responsive layouts, bug fixes, security improvements, and expanded setup documentation.
+
+Full credit for the original project and its foundation belongs to [MrOplus](https://github.com/MrOplus). QMail is an independently maintained and significantly modified derivative of that work.
+
 ## Features
 
 - Receive email on a custom domain
