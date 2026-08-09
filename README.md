@@ -57,7 +57,7 @@ node --version
 pnpm --version
 ```
 
-## Quick Start: Local Development
+## Installation
 
 ### 1. Clone the repository
 
@@ -67,7 +67,13 @@ cd qmail
 pnpm install
 ```
 
-### 2. Create the local Wrangler configuration
+### 2. Install dependencies
+
+Dependencies are installed by the `pnpm install` command above. Continue with the production deployment steps below.
+
+## Production Deployment
+
+### 1. Create the Wrangler configuration
 
 PowerShell:
 
@@ -87,37 +93,7 @@ macOS or Linux:
 cp packages/worker/wrangler.toml.example packages/worker/wrangler.toml
 ```
 
-The example contains a zero UUID that is safe for local development.
-
-### 3. Initialize the local database
-
-```bash
-pnpm db:migrate
-```
-
-### 4. Start QMail
-
-```bash
-pnpm dev
-```
-
-Open:
-
-```text
-http://localhost:8787
-```
-
-For Vue hot reload, keep the Worker running and use another terminal:
-
-```bash
-pnpm dev:frontend
-```
-
-Then open `http://localhost:5173`. Vite proxies API requests to the Worker on port `8787`.
-
-## Production Deployment
-
-### 1. Log in to Cloudflare with Wrangler
+### 2. Log in to Cloudflare with Wrangler
 
 From the project root:
 
@@ -128,7 +104,7 @@ pnpm exec wrangler whoami
 
 Wrangler login is used only for creating Cloudflare resources and deploying the Worker. It is separate from the restricted API token entered later in the QMail setup screen.
 
-### 2. Create a D1 database
+### 3. Create a D1 database
 
 ```bash
 pnpm exec wrangler d1 create qmail-db
@@ -136,7 +112,7 @@ pnpm exec wrangler d1 create qmail-db
 
 The command returns a D1 `database_id`. Do not publish this ID with your repository.
 
-### 3. Create the production configuration
+### 4. Add the D1 database ID
 
 Copy the example configuration:
 
@@ -165,7 +141,7 @@ APP_NAME = "QMail"
 
 `wrangler.toml` is ignored by Git. Keep the Worker name as `qmail`, because the Email Routing setup connects its catch-all rule to a Worker with that name.
 
-### 4. Create the production database tables
+### 5. Create the production database tables
 
 ```bash
 pnpm db:migrate:prod
@@ -173,7 +149,7 @@ pnpm db:migrate:prod
 
 This command writes the QMail schema to the remote `qmail-db` database.
 
-### 5. Build and deploy
+### 6. Build and deploy
 
 ```bash
 pnpm run deploy
@@ -318,15 +294,6 @@ pnpm install
 # Build internal API libraries and the Vue frontend
 pnpm run build
 
-# Run the Worker locally
-pnpm dev
-
-# Run the Vue development server with hot reload
-pnpm dev:frontend
-
-# Initialize local D1
-pnpm db:migrate
-
 # Initialize production D1
 pnpm db:migrate:prod
 
@@ -456,13 +423,7 @@ pnpm --filter @qmail/worker tail
 
 ### D1 reports `no such table`
 
-Local database:
-
-```bash
-pnpm db:migrate
-```
-
-Production database:
+Apply the schema to the production database:
 
 ```bash
 pnpm db:migrate:prod
