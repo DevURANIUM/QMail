@@ -33,30 +33,6 @@ QMail Worker (Hono) <----> Cloudflare D1
 Vue 3 dashboard ----> QMail Worker ----> Brevo API ----> Outgoing mail
 ```
 
-## Requirements
-
-Before starting, you need:
-
-1. A Cloudflare account
-2. A domain added to and active on Cloudflare
-3. A Brevo account
-4. Node.js 18 or newer
-5. pnpm
-
-Enable pnpm with Corepack if necessary:
-
-```bash
-corepack enable
-corepack prepare pnpm@latest --activate
-```
-
-Check your installed versions:
-
-```bash
-node --version
-pnpm --version
-```
-
 ## Installation
 
 ### 1. Clone the repository
