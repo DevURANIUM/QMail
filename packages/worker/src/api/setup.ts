@@ -2,10 +2,41 @@ import { Hono } from 'hono';
 import { DatabaseQueries } from '../db/queries';
 import { CloudflareEmailAPI } from '@qmail/cloudflare-email-api';
 import { BrevoAPI } from '@qmail/brevo-api';
-import { generateId } from '../lib/utils';
+import { generateId, generateToken } from '../lib/utils';
+
+/**
+ * Register (or reuse) the Brevo transactional webhook that reports
+ * delivery status back to this deployment. Never fatal.
+ */
+async function ensureBrevoWebhook(
+  db: DatabaseQueries,
+  brevo: BrevoAPI,
+  requestUrl: string
+): Promise<void> {
+  try {
+    let secret = await db.getSetting('brevo_webhook_secret');
+    if (!secret) {
+      secret = generateToken(24);
+      await db.setSetting('brevo_webhook_secret', secret);
+    }
+
+    const url = `${new URL(requestUrl).origin}/api/webhooks/brevo/${secret}`;
+    const existing = await brevo.webhooks.list();
+
+    if (!existing.some(w => w.url === url)) {
+      const created = await brevo.webhooks.create(url, [
+        'request', 'delivered', 'hardBounce', 'softBounce', 'blocked', 'invalid_email', 'deferred', 'uniqueOpened',
+      ]);
+      await db.setSetting('brevo_webhook_id', String(created.id));
+    }
+  } catch (error) {
+    console.warn('Brevo webhook registration failed (delivery tracking disabled):', error);
+  }
+}
 
 export interface Env {
   DB: D1Database;
+  WORKER_NAME?: string;
 }
 
 const setup = new Hono<{ Bindings: Env }>();
@@ -94,7 +125,7 @@ setup.post('/cloudflare', async (c) => {
     // The worker will store emails and forward them to the destination
     const catchAllRule = await cfApi.routing.setupCatchAllWorker(
       zone.id,
-      'qmail'  // Worker name from wrangler.toml
+      c.env.WORKER_NAME || 'qmail'
     );
 
     // Save settings
@@ -147,8 +178,8 @@ setup.post('/cloudflare/worker-routing', async (c) => {
   const db = new DatabaseQueries(c.env.DB);
 
   try {
-    const body: { workerName?: string } = await c.req.json<{ workerName?: string }>().catch(() => ({}));
-    const workerName = body.workerName || 'qmail';
+    const body = await c.req.json<{ workerName?: string }>().catch(() => ({} as { workerName?: string }));
+    const workerName = body.workerName || c.env.WORKER_NAME || 'qmail';
 
     const apiKey = await db.getSetting('cloudflare_api_key');
     const accountId = await db.getSetting('cloudflare_account_id');
@@ -205,6 +236,9 @@ setup.post('/brevo', async (c) => {
 
     // Save settings
     await db.setSetting('brevo_api_key', apiKey);
+
+    // Register the delivery-status webhook (best effort)
+    await ensureBrevoWebhook(db, brevo, c.req.url);
 
     return c.json({
       success: true,

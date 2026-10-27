@@ -1,27 +1,39 @@
 import PostalMime from 'postal-mime';
 import { DatabaseQueries } from './db/queries';
+import { storeAttachment, maxAttachmentSize } from './lib/attachments';
+import { notifyAllSubscriptions } from './lib/push';
+import { notifyTelegram } from './lib/telegram';
 
 export interface Env {
   DB: D1Database;
+  ATTACHMENTS?: R2Bucket;
 }
 
-// Max attachment size: 5MB (D1 has row size limits)
-const MAX_ATTACHMENT_SIZE = 5 * 1024 * 1024;
-
 /**
- * Convert Uint8Array to base64 string
+ * Determine the conversation (thread) id for an incoming message.
+ * A reply joins the thread of the message it references; otherwise the
+ * message starts a new thread keyed by its own Message-ID (or row id).
  */
-function uint8ArrayToBase64(bytes: Uint8Array): string {
-  let binary = '';
-  for (let i = 0; i < bytes.byteLength; i++) {
-    binary += String.fromCharCode(bytes[i]);
+async function resolveThreadId(
+  db: DatabaseQueries,
+  messageId: string | null,
+  inReplyTo: string | null,
+  references: string[],
+  fallbackId: string
+): Promise<string> {
+  const candidates = [inReplyTo, ...references.slice().reverse()].filter((c): c is string => !!c);
+  for (const candidate of candidates) {
+    const referenced = await db.getEmailByMessageId(candidate);
+    if (referenced?.thread_id) {
+      return referenced.thread_id;
+    }
   }
-  return btoa(binary);
+  return messageId || fallbackId;
 }
 
 /**
  * Handles incoming emails via Cloudflare Email Workers
- * Parses the email, stores it in D1, and forwards to destination
+ * Parses the email, stores it in D1 (attachments in R2), and forwards to destination
  */
 export async function handleEmail(
   message: ForwardableEmailMessage,
@@ -44,15 +56,17 @@ export async function handleEmail(
     // Extract headers as JSON string
     const headers = JSON.stringify(parsed.headers);
 
+    // Threading
+    const messageId = parsed.messageId || null;
+    const inReplyTo = parsed.inReplyTo?.trim() || null;
+    const references = (parsed.references || '').split(/\s+/).filter(Boolean);
+    const threadId = await resolveThreadId(db, messageId, inReplyTo, references, id);
+
     // Store the email in D1
     await db.createEmail({
       id,
       type: 'received',
-      // message.from is the SMTP envelope sender and is often a bounce address.
-      // Prefer the user-visible From header parsed from the message itself.
-      from_address: parsed.from?.address
-        ? (parsed.from.name ? `${parsed.from.name} <${parsed.from.address}>` : parsed.from.address)
-        : message.from,
+      from_address: message.from,
       to_address: message.to,
       cc: parsed.cc?.map(c => c.address).join(', ') || null,
       bcc: null,
@@ -63,36 +77,39 @@ export async function handleEmail(
       raw_size: rawEmail.byteLength,
       is_read: 0,
       is_starred: 0,
+      message_id: messageId,
+      in_reply_to: inReplyTo,
+      thread_id: threadId,
       mailgun_id: null,
     });
 
-    // Store attachments
+    // Store attachments (R2 when configured, D1 inline otherwise)
+    const sizeLimit = maxAttachmentSize(env.ATTACHMENTS);
     if (parsed.attachments && parsed.attachments.length > 0) {
       for (const attachment of parsed.attachments) {
-        const attachmentBytes = typeof attachment.content === 'string'
+        // postal-mime may deliver text attachments as strings
+        const data: Uint8Array = typeof attachment.content === 'string'
           ? new TextEncoder().encode(attachment.content)
           : new Uint8Array(attachment.content);
-        // Skip attachments that are too large
-        if (attachmentBytes.byteLength > MAX_ATTACHMENT_SIZE) {
-          console.warn(`Skipping attachment ${attachment.filename}: too large (${attachmentBytes.byteLength} bytes)`);
+
+        if (data.byteLength > sizeLimit) {
+          console.warn(`Skipping attachment ${attachment.filename}: too large (${data.byteLength} bytes)`);
           continue;
         }
 
-        const attachmentId = crypto.randomUUID();
-        const content = uint8ArrayToBase64(attachmentBytes);
-
-        await db.createAttachment({
-          id: attachmentId,
-          email_id: id,
+        await storeAttachment(db, env.ATTACHMENTS, {
+          emailId: id,
           filename: attachment.filename || 'unnamed',
-          content_type: attachment.mimeType || 'application/octet-stream',
-          size: attachmentBytes.byteLength,
-          content,
+          contentType: attachment.mimeType || 'application/octet-stream',
+          bytes: data,
         });
-
-        console.log(`Attachment saved: ${attachment.filename} (${attachmentBytes.byteLength} bytes)`);
       }
     }
+
+    await notifyTelegram(db, {
+      from: message.from, to: message.to, subject: parsed.subject || '(No Subject)',
+      text: parsed.text, attachmentCount: parsed.attachments?.length || 0,
+    });
 
     // Get the destination email from settings
     const destinationEmail = await db.getSetting('destination_email');
@@ -101,6 +118,9 @@ export async function handleEmail(
     if (destinationEmail) {
       await message.forward(destinationEmail);
     }
+
+    // Fire a web push notification to registered devices (never fatal)
+    await notifyAllSubscriptions(db);
 
     console.log(`Email received and stored: ${id} from ${message.from} to ${message.to} with ${parsed.attachments?.length || 0} attachments`);
   } catch (error) {

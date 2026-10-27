@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
+import { textDirection } from '@/utils/textDirection';
+import SchedulePicker from '@/components/SchedulePicker.vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useEmailsStore } from '@/stores/emails';
 import api from '@/api/client';
-import type { Address, Settings } from '@/api/types';
+import type { Address, Contact, Settings } from '@/api/types';
 
 const route = useRoute();
 const router = useRouter();
@@ -18,9 +20,21 @@ const body = ref('');
 const showCc = ref(false);
 const showBcc = ref(false);
 const isSending = ref(false);
+const isSavingDraft = ref(false);
 const error = ref('');
+const notice = ref('');
 const addresses = ref<Address[]>([]);
 const settings = ref<Settings | null>(null);
+const contacts = ref<Contact[]>([]);
+
+// Context: draft being edited, reply threading, forward source
+const draftId = ref<string | null>(null);
+const replyToEmailId = ref<string | null>(null);
+const forwardOfEmailId = ref<string | null>(null);
+
+// Scheduling
+const showSchedule = ref(false);
+const scheduleAt = ref('');
 
 // Attachments
 interface AttachmentFile {
@@ -34,6 +48,11 @@ const attachments = ref<AttachmentFile[]>([]);
 const fileInputRef = ref<HTMLInputElement | null>(null);
 const MAX_ATTACHMENT_SIZE = 5 * 1024 * 1024; // 5MB per file
 const MAX_TOTAL_SIZE = 10 * 1024 * 1024; // 10MB total
+
+function quoteBody(text: string, header: string): string {
+  const quoted = (text || '').split('\n').map(line => `> ${line}`).join('\n');
+  return `\n\n${header}\n${quoted}`;
+}
 
 onMounted(async () => {
   // Load addresses and settings
@@ -58,14 +77,82 @@ onMounted(async () => {
     console.error('Failed to load addresses:', e);
   }
 
-  // Handle reply
-  if (route.query.to) {
-    to.value = route.query.to as string;
+  // Contact suggestions for recipient fields
+  api.getContacts()
+    .then(result => { contacts.value = result.contacts; })
+    .catch(() => { /* suggestions are optional */ });
+
+  // Edit an existing draft / scheduled email
+  if (route.query.draft) {
+    try {
+      const draft = await api.getEmail(route.query.draft as string);
+      draftId.value = draft.id;
+      from.value = draft.from_address || from.value;
+      to.value = draft.to_address || '';
+      cc.value = draft.cc || '';
+      bcc.value = draft.bcc || '';
+      subject.value = draft.subject || '';
+      body.value = draft.body_text || '';
+      showCc.value = !!draft.cc;
+      showBcc.value = !!draft.bcc;
+      if (draft.delivery_status === 'failed') {
+        notice.value = 'The previous send attempt failed — review and try again.';
+      }
+    } catch {
+      error.value = 'Could not load draft';
+    }
+    return;
   }
-  if (route.query.subject) {
-    subject.value = route.query.subject as string;
+
+  // Reply with quote
+  if (route.query.replyTo) {
+    try {
+      const original = await api.getEmail(route.query.replyTo as string);
+      replyToEmailId.value = original.id;
+      to.value = original.from_address;
+      subject.value = original.subject?.startsWith('Re:') ? original.subject : `Re: ${original.subject || ''}`;
+      const when = new Date(original.created_at.includes('T') ? original.created_at : `${original.created_at.replace(' ', 'T')}Z`).toLocaleString();
+      body.value = quoteBody(original.body_text || '', `On ${when}, ${original.from_address} wrote:`);
+    } catch {
+      // Fall back to legacy query params
+      if (route.query.to) to.value = route.query.to as string;
+      if (route.query.subject) subject.value = route.query.subject as string;
+    }
+    return;
   }
+
+  // Forward
+  if (route.query.forward) {
+    try {
+      const original = await api.getEmail(route.query.forward as string);
+      forwardOfEmailId.value = original.id;
+      subject.value = original.subject?.startsWith('Fwd:') ? original.subject : `Fwd: ${original.subject || ''}`;
+      const when = new Date(original.created_at.includes('T') ? original.created_at : `${original.created_at.replace(' ', 'T')}Z`).toLocaleString();
+      body.value = quoteBody(
+        original.body_text || '',
+        `---------- Forwarded message ----------\nFrom: ${original.from_address}\nDate: ${when}\nSubject: ${original.subject || ''}\nTo: ${original.to_address}\n`
+      );
+      if (original.attachments && original.attachments.length > 0) {
+        notice.value = `${original.attachments.length} attachment(s) from the original message will be included.`;
+      }
+    } catch {
+      error.value = 'Could not load message to forward';
+    }
+    return;
+  }
+
+  // Legacy prefill
+  if (route.query.to) to.value = route.query.to as string;
+  if (route.query.subject) subject.value = route.query.subject as string;
 });
+
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
 
 async function sendEmail() {
   error.value = '';
@@ -80,6 +167,16 @@ async function sendEmail() {
     return;
   }
 
+  let scheduleIso: string | undefined;
+  if (showSchedule.value && scheduleAt.value) {
+    const when = new Date(scheduleAt.value);
+    if (isNaN(when.getTime()) || when.getTime() < Date.now() + 60 * 1000) {
+      error.value = 'Schedule time must be at least a minute in the future';
+      return;
+    }
+    scheduleIso = when.toISOString();
+  }
+
   isSending.value = true;
 
   try {
@@ -90,29 +187,56 @@ async function sendEmail() {
       contentType: att.type || 'application/octet-stream',
     }));
 
-    const escapedBody = body.value
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#039;');
-
-    await emailsStore.sendEmail({
+    const result = await emailsStore.sendEmail({
       from: from.value,
       to: to.value,
       cc: cc.value || undefined,
       bcc: bcc.value || undefined,
       subject: subject.value,
       text: body.value,
-      html: `<p>${escapedBody.replace(/\r?\n/g, '<br>')}</p>`,
+      // Escape before converting newlines so typed markup stays literal text
+      html: `<p dir="${textDirection(body.value)}" style="text-align: start; font-family: Vazirmatn, Tahoma, Arial, sans-serif; line-height: 1.9;">${escapeHtml(body.value).replace(/\n/g, '<br>')}</p>`,
       attachments: attachmentData.length > 0 ? attachmentData : undefined,
+      draftId: draftId.value || undefined,
+      scheduleAt: scheduleIso,
+      replyToEmailId: replyToEmailId.value || undefined,
+      forwardOfEmailId: forwardOfEmailId.value || undefined,
     });
 
-    router.push({ name: 'sent' });
+    router.push({ name: result.scheduled ? 'drafts' : 'sent' });
   } catch (e) {
     error.value = e instanceof Error ? e.message : 'Failed to send email';
   } finally {
     isSending.value = false;
+  }
+}
+
+async function saveDraft() {
+  error.value = '';
+
+  if (!from.value) {
+    error.value = 'A From address is required to save a draft';
+    return;
+  }
+
+  isSavingDraft.value = true;
+  try {
+    const result = await api.saveDraft({
+      id: draftId.value || undefined,
+      from: from.value,
+      to: to.value || undefined,
+      cc: cc.value || undefined,
+      bcc: bcc.value || undefined,
+      subject: subject.value || undefined,
+      text: body.value || undefined,
+      html: body.value ? `<p dir="${textDirection(body.value)}" style="text-align: start; font-family: Vazirmatn, Tahoma, Arial, sans-serif; line-height: 1.9;">${escapeHtml(body.value).replace(/\n/g, '<br>')}</p>` : undefined,
+    });
+    draftId.value = result.id;
+    notice.value = 'Draft saved.';
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : 'Failed to save draft';
+  } finally {
+    isSavingDraft.value = false;
   }
 }
 
@@ -194,21 +318,23 @@ function getTotalAttachmentSize(): number {
 </script>
 
 <template>
-  <div class="qm-page max-w-5xl mx-auto">
-    <p class="text-xs font-bold tracking-[.2em] uppercase text-primary-600">Create</p>
-    <h1 class="qm-title mt-1">New message</h1>
-    <p class="qm-subtitle mb-6">Write and send securely from your QMail address.</p>
+  <div class="p-8 max-w-4xl">
+    <h1 class="page-title mb-6">
+      {{ replyToEmailId ? 'Reply' : forwardOfEmailId ? 'Forward' : draftId ? 'Edit draft' : 'Compose' }}
+    </h1>
 
-    <div class="qm-card">
-      <form @submit.prevent="sendEmail" class="p-5 sm:p-7 space-y-5">
+    <div class="card">
+      <form class="p-6 space-y-4" @submit.prevent="sendEmail">
+        <div v-if="notice" class="alert-success">{{ notice }}</div>
+
         <!-- From -->
         <div>
-          <label for="from" class="block text-sm font-medium text-gray-700 mb-1">From</label>
+          <label for="from" class="label">From</label>
           <select
             v-if="addresses.length > 0"
             id="from"
             v-model="from"
-            class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-primary-500 focus:border-primary-500"
+            class="input"
           >
             <option v-for="addr in addresses" :key="addr.id" :value="addr.address">
               {{ addr.display_name ? `${addr.display_name} <${addr.address}>` : addr.address }}
@@ -220,94 +346,80 @@ function getTotalAttachmentSize(): number {
             v-model="from"
             type="email"
             placeholder="your-email@yourdomain.com"
-            class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-primary-500 focus:border-primary-500"
+            class="input"
           />
         </div>
 
+        <!-- Contact suggestions -->
+        <datalist id="contact-suggestions">
+          <option v-for="contact in contacts" :key="contact.id" :value="contact.email">
+            {{ contact.name || contact.email }}
+          </option>
+        </datalist>
+
         <!-- To -->
         <div>
-          <label for="to" class="block text-sm font-medium text-gray-700 mb-1">To</label>
-          <div class="flex items-center">
+          <label for="to" class="label">To</label>
+          <div class="flex items-center gap-2">
             <input
               id="to"
               v-model="to"
               type="email"
               required
               placeholder="recipient@example.com"
-              class="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-primary-500 focus:border-primary-500"
+              list="contact-suggestions"
+              class="input flex-1 min-w-0"
             />
-            <button
-              type="button"
-              @click="showCc = !showCc"
-              class="ml-2 text-sm text-gray-500 hover:text-gray-700"
-            >
-              Cc
-            </button>
-            <button
-              type="button"
-              @click="showBcc = !showBcc"
-              class="ml-2 text-sm text-gray-500 hover:text-gray-700"
-            >
-              Bcc
-            </button>
+            <button type="button" class="recipient-toggle" :aria-expanded="showCc" aria-controls="cc" @click="showCc = !showCc">Cc</button>
+            <button type="button" class="recipient-toggle" :aria-expanded="showBcc" aria-controls="bcc" @click="showBcc = !showBcc">Bcc</button>
           </div>
         </div>
 
         <!-- CC -->
         <div v-if="showCc">
-          <label for="cc" class="block text-sm font-medium text-gray-700 mb-1">Cc</label>
-          <input
-            id="cc"
-            v-model="cc"
-            type="email"
-            placeholder="cc@example.com"
-            class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-primary-500 focus:border-primary-500"
-          />
+          <label for="cc" class="label">Cc</label>
+          <input id="cc" v-model="cc" type="email" placeholder="cc@example.com" list="contact-suggestions" class="input" />
         </div>
 
         <!-- BCC -->
         <div v-if="showBcc">
-          <label for="bcc" class="block text-sm font-medium text-gray-700 mb-1">Bcc</label>
-          <input
-            id="bcc"
-            v-model="bcc"
-            type="email"
-            placeholder="bcc@example.com"
-            class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-primary-500 focus:border-primary-500"
-          />
+          <label for="bcc" class="label">Bcc</label>
+          <input id="bcc" v-model="bcc" type="email" placeholder="bcc@example.com" list="contact-suggestions" class="input" />
         </div>
 
         <!-- Subject -->
         <div>
-          <label for="subject" class="block text-sm font-medium text-gray-700 mb-1">Subject</label>
+          <label for="subject" class="label">Subject</label>
           <input
             id="subject"
             v-model="subject"
+            :dir="textDirection(subject)"
             type="text"
             required
             placeholder="Email subject"
-            class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-primary-500 focus:border-primary-500"
+            class="input"
           />
         </div>
 
         <!-- Body -->
         <div>
-          <label for="body" class="block text-sm font-medium text-gray-700 mb-1">Message</label>
+          <label for="body" class="label">Message</label>
           <textarea
             id="body"
             v-model="body"
+            :dir="textDirection(body)"
             rows="12"
             required
-            placeholder="Write your message here..."
-            class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-primary-500 focus:border-primary-500 resize-none"
+            placeholder="Write your message here…"
+            class="input message-editor resize-y leading-relaxed"
           ></textarea>
         </div>
 
         <!-- Attachments -->
         <div>
           <div class="flex items-center justify-between mb-2">
-            <label class="block text-sm font-medium text-gray-700">Attachments</label>
-            <span v-if="attachments.length > 0" class="text-xs text-gray-500">
+            <span class="label mb-0">Attachments</span>
+            <span v-if="attachments.length > 0" class="text-xs text-ink-3 tabular-nums">
               {{ formatFileSize(getTotalAttachmentSize()) }} / 10 MB
             </span>
           </div>
@@ -324,11 +436,11 @@ function getTotalAttachmentSize(): number {
           <!-- Add attachment button -->
           <button
             type="button"
+            class="w-full px-4 py-3 border-2 border-dashed border-edge rounded-lg text-ink-3 hover:border-accent hover:text-accent transition-colors flex items-center justify-center text-sm"
             @click="triggerFileInput"
-            class="w-full px-4 py-3 border-2 border-dashed border-gray-300 rounded-lg text-gray-500 hover:border-primary-500 hover:text-primary-500 transition-colors flex items-center justify-center"
           >
             <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
             </svg>
             Add attachments (max 5MB per file)
           </button>
@@ -338,61 +450,62 @@ function getTotalAttachmentSize(): number {
             <div
               v-for="(att, index) in attachments"
               :key="att.name"
-              class="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
+              class="flex items-center justify-between p-3 bg-surface-2 rounded-lg"
             >
               <div class="flex items-center min-w-0">
-                <svg class="w-5 h-5 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                <svg class="w-5 h-5 text-ink-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
                 </svg>
-                <span class="ml-2 text-sm text-gray-900 truncate">{{ att.name }}</span>
-                <span class="ml-2 text-xs text-gray-500 flex-shrink-0">({{ formatFileSize(att.size) }})</span>
+                <span class="ml-2 text-sm text-ink truncate">{{ att.name }}</span>
+                <span class="ml-2 text-xs text-ink-3 flex-shrink-0">({{ formatFileSize(att.size) }})</span>
               </div>
               <button
                 type="button"
-                @click="removeAttachment(index)"
-                class="ml-2 p-1 text-gray-400 hover:text-red-500 flex-shrink-0"
+                class="ml-2 p-1 text-ink-3 hover:text-danger flex-shrink-0 transition-colors"
                 title="Remove attachment"
+                @click="removeAttachment(index)"
               >
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
             </div>
           </div>
         </div>
 
-        <!-- Error -->
-        <div v-if="error" class="rounded-md bg-red-50 p-4">
-          <div class="flex">
-            <svg class="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
-              <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />
+        <!-- Send later -->
+        <div>
+          <button
+            type="button"
+            class="text-sm text-ink-3 hover:text-ink transition-colors flex items-center gap-1.5"
+            @click="showSchedule = !showSchedule"
+          >
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
-            <p class="ml-3 text-sm font-medium text-red-800">{{ error }}</p>
+            {{ showSchedule ? 'Send now instead' : 'Send later…' }}
+          </button>
+          <div v-if="showSchedule" class="mt-2">
+            <SchedulePicker v-model="scheduleAt" />
+            <p class="hint">Delivered automatically at this time (checked every 5 minutes).</p>
           </div>
         </div>
 
+        <!-- Error -->
+        <div v-if="error" class="alert-error">{{ error }}</div>
+
         <!-- Actions -->
         <div class="flex justify-end space-x-3 pt-4">
-          <button
-            type="button"
-            @click="cancel"
-            class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
-          >
-            Cancel
+          <button type="button" class="btn btn-ghost" @click="cancel">Cancel</button>
+          <button type="button" class="btn btn-ghost" :disabled="isSavingDraft" @click="saveDraft">
+            {{ isSavingDraft ? 'Saving…' : 'Save draft' }}
           </button>
-          <button
-            type="submit"
-            :disabled="isSending"
-            class="flex items-center px-4 py-2 text-sm font-medium text-white bg-primary-600 rounded-lg hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <svg v-if="isSending" class="w-4 h-4 mr-2 animate-spin" fill="none" viewBox="0 0 24 24">
-              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-            </svg>
-            <svg v-else class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <button type="submit" :disabled="isSending" class="btn btn-primary">
+            <span v-if="isSending" class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+            <svg v-else class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
             </svg>
-            {{ isSending ? 'Sending...' : 'Send' }}
+            {{ isSending ? 'Sending…' : (showSchedule && scheduleAt ? 'Schedule' : 'Send') }}
           </button>
         </div>
       </form>

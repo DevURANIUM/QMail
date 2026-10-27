@@ -1,0 +1,16 @@
+{
+  "name": "Qmail",
+  "short_name": "Qmail",
+  "description": "Mail on your own domain",
+  "id": "/",
+  "scope": "/",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f2f6fc",
+  "theme_color": "#245cce",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

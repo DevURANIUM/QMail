@@ -10,8 +10,10 @@ const password = ref('');
 const confirmPassword = ref('');
 const error = ref('');
 const isLoading = ref(false);
+const isPasskeyLoading = ref(false);
 
 const isSetupMode = computed(() => authStore.needsSetup);
+const showPasskey = computed(() => !isSetupMode.value && authStore.hasPasskeys);
 
 async function handleSubmit() {
   error.value = '';
@@ -48,82 +50,98 @@ async function handleSubmit() {
     isLoading.value = false;
   }
 }
+
+async function handlePasskeyLogin() {
+  error.value = '';
+  isPasskeyLoading.value = true;
+
+  try {
+    await authStore.loginWithPasskey();
+    router.push({ name: 'dashboard' });
+  } catch (e) {
+    // A cancelled browser prompt is not an error worth showing
+    if (e instanceof Error && e.name !== 'NotAllowedError') {
+      error.value = e.message || 'Passkey sign-in failed';
+    }
+  } finally {
+    isPasskeyLoading.value = false;
+  }
+}
 </script>
 
 <template>
-  <div class="login-page min-h-screen flex items-center justify-center p-4">
-    <div class="login-card max-w-md w-full p-7 sm:p-9">
-      <div>
-        <div class="mx-auto q-login-logo">Q</div>
-        <p class="mt-5 text-center text-xs font-bold uppercase tracking-[.25em] text-primary-600">QMail workspace</p>
-        <h2 class="mt-2 text-center text-3xl font-extrabold tracking-tight text-gray-900">
-          {{ isSetupMode ? 'Create your private inbox' : 'Welcome back' }}
-        </h2>
-        <p class="mt-2 text-center text-sm text-gray-600">
-          {{ isSetupMode ? 'Set up your admin password to get started' : 'Enter your password to continue' }}
+  <div class="min-h-screen flex items-center justify-center bg-page py-12 px-4 sm:px-6 lg:px-8">
+    <div class="max-w-md w-full">
+      <div class="text-center">
+        <div class="mx-auto h-14 w-14 bg-accent rounded-2xl flex items-center justify-center">
+          <img src="/favicon.svg" alt="" class="h-full w-full" />
+        </div>
+        <h1 class="mt-6 font-display text-3xl text-ink">
+          {{ isSetupMode ? 'Welcome to Qmail' : 'Qmail' }}
+        </h1>
+        <p class="mt-2 text-sm text-ink-2">
+          {{ isSetupMode ? 'Create your admin password to get started' : 'Sign in to your mailbox' }}
         </p>
       </div>
 
-      <form class="mt-8 space-y-5" @submit.prevent="handleSubmit">
-        <div class="rounded-md shadow-sm space-y-4">
+      <div class="card mt-8 p-6">
+        <!-- Passkey sign-in -->
+        <template v-if="showPasskey">
+          <button
+            class="btn btn-primary w-full"
+            :disabled="isPasskeyLoading"
+            @click="handlePasskeyLogin"
+          >
+            <svg v-if="!isPasskeyLoading" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M12 11c0 3.517-1.009 6.799-2.753 9.571m-3.44-2.04l.054-.09A13.916 13.916 0 008 11a4 4 0 118 0c0 1.017-.07 2.019-.203 3m-2.118 6.844A21.88 21.88 0 0015.171 17m3.839 1.132c.645-2.266.99-4.659.99-7.132A8 8 0 008 3.935m-3.44 2.04A7.965 7.965 0 004 11c0 1.017-.07 2.019-.203 3" />
+            </svg>
+            <span v-if="isPasskeyLoading" class="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+            {{ isPasskeyLoading ? 'Waiting for passkey…' : 'Sign in with passkey' }}
+          </button>
+
+          <div class="flex items-center gap-3 my-5">
+            <div class="flex-1 border-t border-edge"></div>
+            <span class="text-xs text-ink-3">or use your password</span>
+            <div class="flex-1 border-t border-edge"></div>
+          </div>
+        </template>
+
+        <form class="space-y-4" @submit.prevent="handleSubmit">
           <div>
-            <label for="password" class="block text-sm font-medium text-gray-700">Password</label>
+            <label for="password" class="label">Password</label>
             <input
               id="password"
               v-model="password"
               type="password"
               required
+              autocomplete="current-password"
               :minlength="isSetupMode ? 8 : undefined"
-              class="qm-input mt-1"
+              class="input"
               :placeholder="isSetupMode ? 'Create a password (min 8 characters)' : 'Enter your password'"
             />
           </div>
 
           <div v-if="isSetupMode">
-            <label for="confirmPassword" class="block text-sm font-medium text-gray-700">Confirm Password</label>
+            <label for="confirmPassword" class="label">Confirm password</label>
             <input
               id="confirmPassword"
               v-model="confirmPassword"
               type="password"
               required
-              class="qm-input mt-1"
+              autocomplete="new-password"
+              class="input"
               placeholder="Confirm your password"
             />
           </div>
-        </div>
 
-        <div v-if="error" class="rounded-md bg-red-50 p-4">
-          <div class="flex">
-            <div class="flex-shrink-0">
-              <svg class="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
-                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />
-              </svg>
-            </div>
-            <div class="ml-3">
-              <p class="text-sm font-medium text-red-800">{{ error }}</p>
-            </div>
-          </div>
-        </div>
+          <div v-if="error" class="alert-error">{{ error }}</div>
 
-        <div>
-          <button
-            type="submit"
-            :disabled="isLoading"
-            class="qm-button-primary relative w-full py-3"
-          >
-            <span v-if="isLoading" class="absolute left-0 inset-y-0 flex items-center pl-3">
-              <div class="h-5 w-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-            </span>
-            {{ isLoading ? 'Please wait...' : (isSetupMode ? 'Create Account' : 'Sign In') }}
+          <button type="submit" :disabled="isLoading" class="btn btn-primary w-full">
+            <span v-if="isLoading" class="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+            {{ isLoading ? 'Please wait…' : (isSetupMode ? 'Create account' : 'Sign in') }}
           </button>
-        </div>
-      </form>
+        </form>
+      </div>
     </div>
   </div>
 </template>
-
-<style scoped>
-.login-page { background:radial-gradient(circle at 15% 20%,rgba(79,70,229,.16),transparent 32%),radial-gradient(circle at 90% 80%,rgba(37,99,235,.13),transparent 34%),#f5f7fb; }
-.login-card { background:rgba(255,255,255,.88); border:1px solid rgba(203,213,225,.75); border-radius:24px; box-shadow:0 30px 80px rgba(15,23,42,.13); backdrop-filter:blur(18px); }
-.q-login-logo { @apply flex items-center justify-center w-16 h-16 text-2xl font-black text-white rounded-2xl; background:linear-gradient(135deg,#6366f1,#2563eb); box-shadow:0 15px 34px rgba(37,99,235,.3); }
-</style>

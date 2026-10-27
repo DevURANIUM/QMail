@@ -2,17 +2,32 @@ name = "qmail"
 main = "src/index.ts"
 compatibility_date = "2026-08-01"
 
-# This zero UUID is safe for local development. Replace it with the ID returned by:
-# pnpm exec wrangler d1 create qmail-db
+# D1 Database - Replace with your database ID from: wrangler d1 create qmail-db
 [[d1_databases]]
 binding = "DB"
 database_name = "qmail-db"
-database_id = "00000000-0000-0000-0000-000000000000"
+database_id = "YOUR_DATABASE_ID_HERE"
 
 # Static assets from Vue build
+# The binding lets the worker serve index.html for SPA deep links (/inbox, /login, …)
 [assets]
 directory = "../../frontend/dist"
+binding = "ASSETS"
+run_worker_first = true
+not_found_handling = "single-page-application"
+
+# R2 bucket for attachments (optional). Enable R2 in the Cloudflare dashboard,
+# run: wrangler r2 bucket create qmail-attachments — then uncomment.
+# Without it attachments are stored inline in D1 (5MB cap instead of 25MB).
+# [[r2_buckets]]
+# binding = "ATTACHMENTS"
+# bucket_name = "qmail-attachments"
+
+# Cron: delivers scheduled emails and cleans up expired sessions
+[triggers]
+crons = ["*/5 * * * *"]
 
 # Environment variables
 [vars]
-APP_NAME = "QMail"
+APP_NAME = "Qmail"
+WORKER_NAME = "qmail"

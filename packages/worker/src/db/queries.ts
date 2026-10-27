@@ -1,6 +1,8 @@
+export type EmailType = 'received' | 'sent' | 'draft' | 'scheduled';
+
 export interface Email {
   id: string;
-  type: 'received' | 'sent';
+  type: EmailType;
   from_address: string;
   to_address: string;
   cc: string | null;
@@ -12,8 +14,17 @@ export interface Email {
   raw_size: number | null;
   is_read: number;
   is_starred: number;
+  archived: number;
+  labels: string; // JSON array of strings
+  message_id: string | null;
+  in_reply_to: string | null;
+  thread_id: string | null;
+  delivery_status: string | null;
+  scheduled_at: string | null;
   mailgun_id: string | null;
   created_at: string;
+  /** Populated by list/search queries via subselect */
+  attachment_count?: number;
 }
 
 export interface Setting {
@@ -43,8 +54,37 @@ export interface Attachment {
   filename: string;
   content_type: string;
   size: number;
-  content: string; // Base64 encoded
+  content: string | null; // Base64 encoded (null when stored in R2)
+  r2_key: string | null;  // R2 object key (null when stored inline)
   created_at: string;
+}
+
+export interface PushSubscription {
+  id: string;
+  endpoint: string;
+  p256dh: string;
+  auth: string;
+  created_at: string;
+}
+
+export interface Contact {
+  id: string;
+  email: string;
+  name: string | null;
+  notes: string | null;
+  last_contacted_at: string | null;
+  created_at: string;
+}
+
+export interface Credential {
+  id: string;
+  credential_id: string;
+  public_key: string;
+  counter: number;
+  transports: string | null;
+  device_name: string | null;
+  created_at: string;
+  last_used_at: string | null;
 }
 
 export class DatabaseQueries {
@@ -85,11 +125,11 @@ export class DatabaseQueries {
 
   // ==================== Emails ====================
 
-  async createEmail(email: Omit<Email, 'created_at'>): Promise<void> {
+  async createEmail(email: Omit<Email, 'created_at' | 'archived' | 'labels' | 'message_id' | 'in_reply_to' | 'thread_id' | 'delivery_status' | 'scheduled_at'> & Partial<Pick<Email, 'archived' | 'labels' | 'message_id' | 'in_reply_to' | 'thread_id' | 'delivery_status' | 'scheduled_at'>>): Promise<void> {
     await this.db
       .prepare(
-        `INSERT INTO emails (id, type, from_address, to_address, cc, bcc, subject, body_text, body_html, headers, raw_size, is_read, is_starred, mailgun_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO emails (id, type, from_address, to_address, cc, bcc, subject, body_text, body_html, headers, raw_size, is_read, is_starred, archived, labels, message_id, in_reply_to, thread_id, delivery_status, scheduled_at, mailgun_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .bind(
         email.id,
@@ -105,7 +145,43 @@ export class DatabaseQueries {
         email.raw_size,
         email.is_read,
         email.is_starred,
+        email.archived ?? 0,
+        email.labels ?? '[]',
+        email.message_id ?? null,
+        email.in_reply_to ?? null,
+        email.thread_id ?? null,
+        email.delivery_status ?? null,
+        email.scheduled_at ?? null,
         email.mailgun_id
+      )
+      .run();
+  }
+
+  /** Update draft/scheduled email fields in place */
+  async updateEmailContent(id: string, fields: {
+    from_address: string;
+    to_address: string;
+    cc: string | null;
+    bcc: string | null;
+    subject: string | null;
+    body_text: string | null;
+    body_html: string | null;
+    scheduled_at?: string | null;
+  }): Promise<void> {
+    await this.db
+      .prepare(
+        `UPDATE emails SET from_address = ?, to_address = ?, cc = ?, bcc = ?, subject = ?, body_text = ?, body_html = ?, scheduled_at = ? WHERE id = ?`
+      )
+      .bind(
+        fields.from_address,
+        fields.to_address,
+        fields.cc,
+        fields.bcc,
+        fields.subject,
+        fields.body_text,
+        fields.body_html,
+        fields.scheduled_at ?? null,
+        id
       )
       .run();
   }
@@ -118,15 +194,18 @@ export class DatabaseQueries {
   }
 
   async listEmails(
-    type?: 'received' | 'sent',
+    type?: EmailType,
     options?: {
       limit?: number;
       offset?: number;
       unreadOnly?: boolean;
       starredOnly?: boolean;
+      archivedOnly?: boolean;
+      folder?: string;
+      label?: string;
     }
   ): Promise<Email[]> {
-    let query = 'SELECT * FROM emails';
+    let query = 'SELECT emails.*, (SELECT COUNT(*) FROM attachments WHERE attachments.email_id = emails.id) AS attachment_count FROM emails';
     const conditions: string[] = [];
     const params: (string | number)[] = [];
 
@@ -141,6 +220,25 @@ export class DatabaseQueries {
 
     if (options?.starredOnly) {
       conditions.push('is_starred = 1');
+    }
+
+    // Archived mail lives in its own view; everything else excludes it
+    if (options?.archivedOnly) {
+      conditions.push('archived = 1');
+    } else {
+      conditions.push('archived = 0');
+    }
+
+    if (options?.folder) {
+      conditions.push('EXISTS (SELECT 1 FROM email_folders WHERE email_id = emails.id AND folder_id = ?)');
+      params.push(options.folder);
+    } else if (!options?.archivedOnly && !options?.label) {
+      conditions.push('NOT EXISTS (SELECT 1 FROM email_folders WHERE email_id = emails.id)');
+    }
+
+    if (options?.label) {
+      conditions.push("EXISTS (SELECT 1 FROM json_each(emails.labels) WHERE json_each.value = ?)");
+      params.push(options.label);
     }
 
     if (conditions.length > 0) {
@@ -162,6 +260,147 @@ export class DatabaseQueries {
     const stmt = this.db.prepare(query);
     const bound = params.length > 0 ? stmt.bind(...params) : stmt;
     const results = await bound.all<Email>();
+    return results.results || [];
+  }
+
+  /**
+   * Full-text search across subject, body, and addresses (FTS5).
+   * The query is normalized into quoted terms so FTS syntax can't error.
+   */
+  async searchEmails(query: string, limit = 50): Promise<Email[]> {
+    const terms = query
+      .split(/\s+/)
+      .map(t => t.replace(/["*^]/g, ''))
+      .filter(Boolean)
+      .map(t => `"${t}"*`)
+      .join(' ');
+
+    if (!terms) return [];
+
+    const results = await this.db
+      .prepare(
+        `SELECT e.*, (SELECT COUNT(*) FROM attachments WHERE attachments.email_id = e.id) AS attachment_count
+         FROM emails e
+         JOIN emails_fts f ON e.rowid = f.rowid
+         WHERE emails_fts MATCH ?
+         ORDER BY rank
+         LIMIT ?`
+      )
+      .bind(terms, limit)
+      .all<Email>();
+    return results.results || [];
+  }
+
+  async getEmailsByThread(threadId: string): Promise<Email[]> {
+    const results = await this.db
+      .prepare("SELECT * FROM emails WHERE thread_id = ? ORDER BY created_at")
+      .bind(threadId)
+      .all<Email>();
+    return results.results || [];
+  }
+
+  async getEmailByMessageId(messageId: string): Promise<Email | null> {
+    return this.db
+      .prepare('SELECT * FROM emails WHERE message_id = ? LIMIT 1')
+      .bind(messageId)
+      .first<Email>();
+  }
+
+  async setArchived(id: string, archived: boolean): Promise<void> {
+    await this.db
+      .prepare('UPDATE emails SET archived = ? WHERE id = ?')
+      .bind(archived ? 1 : 0, id)
+      .run();
+  }
+
+  async setLabels(id: string, labels: string[]): Promise<void> {
+    await this.db
+      .prepare('UPDATE emails SET labels = ? WHERE id = ?')
+      .bind(JSON.stringify(labels), id)
+      .run();
+  }
+
+  async listAllLabels(): Promise<string[]> {
+    const results = await this.db
+      .prepare("SELECT DISTINCT json_each.value AS label FROM emails, json_each(emails.labels) ORDER BY label")
+      .all<{ label: string }>();
+    return (results.results || []).map(r => r.label);
+  }
+
+  async getEmailByBrevoMessageId(brevoMessageId: string): Promise<Email | null> {
+    return this.db
+      .prepare("SELECT * FROM emails WHERE mailgun_id = ? AND type = 'sent' LIMIT 1")
+      .bind(brevoMessageId)
+      .first<Email>();
+  }
+
+  async updateDeliveryStatus(brevoMessageId: string, status: string): Promise<void> {
+    await this.db
+      .prepare("UPDATE emails SET delivery_status = ? WHERE mailgun_id = ? AND type = 'sent'")
+      .bind(status, brevoMessageId)
+      .run();
+  }
+
+  /**
+   * Convert a pending/draft/scheduled row into a sent email after delivery.
+   * Brevo's message id becomes the RFC Message-ID so future replies thread.
+   */
+  async markEmailSent(id: string, brevoMessageId: string | null): Promise<void> {
+    await this.db
+      .prepare(
+        `UPDATE emails SET
+           type = 'sent',
+           delivery_status = 'queued',
+           mailgun_id = ?,
+           message_id = COALESCE(?, message_id),
+           thread_id = COALESCE(thread_id, ?, id),
+           scheduled_at = NULL,
+           created_at = datetime('now')
+         WHERE id = ?`
+      )
+      .bind(brevoMessageId, brevoMessageId, brevoMessageId, id)
+      .run();
+  }
+
+  /** Move a draft into the scheduled queue (clears any failed marker) */
+  async setScheduled(id: string): Promise<void> {
+    await this.db
+      .prepare("UPDATE emails SET type = 'scheduled', delivery_status = NULL WHERE id = ?")
+      .bind(id)
+      .run();
+  }
+
+  /** Demote a failed send back to an editable draft */
+  async markSendFailed(id: string): Promise<void> {
+    await this.db
+      .prepare("UPDATE emails SET type = 'draft', delivery_status = 'failed', scheduled_at = NULL WHERE id = ?")
+      .bind(id)
+      .run();
+  }
+
+  /** Every email, newest first (mbox export) */
+  async listAllEmails(limit = 5000): Promise<Email[]> {
+    const results = await this.db
+      .prepare('SELECT * FROM emails ORDER BY created_at LIMIT ?')
+      .bind(limit)
+      .all<Email>();
+    return results.results || [];
+  }
+
+  async markScheduledFailed(id: string): Promise<void> {
+    await this.db
+      .prepare("UPDATE emails SET delivery_status = 'failed' WHERE id = ?")
+      .bind(id)
+      .run();
+  }
+
+  /** Scheduled emails that are due and have not permanently failed */
+  async listDueScheduledEmails(): Promise<Email[]> {
+    const results = await this.db
+      .prepare(
+        "SELECT * FROM emails WHERE type = 'scheduled' AND scheduled_at <= datetime('now') AND (delivery_status IS NULL OR delivery_status != 'failed')"
+      )
+      .all<Email>();
     return results.results || [];
   }
 
@@ -187,30 +426,36 @@ export class DatabaseQueries {
   }
 
   async deleteEmail(id: string): Promise<void> {
-    await this.db
-      .prepare('DELETE FROM emails WHERE id = ?')
-      .bind(id)
-      .run();
+    // D1 does not guarantee foreign_keys pragma, so delete attachments explicitly
+    await this.db.batch([
+      this.db.prepare('DELETE FROM attachments WHERE email_id = ?').bind(id),
+      this.db.prepare('DELETE FROM emails WHERE id = ?').bind(id),
+    ]);
   }
 
-  async markManyAsRead(ids: string[], isRead: boolean): Promise<void> {
-    if (ids.length === 0) return;
-    await this.db.batch(ids.map(id =>
-      this.db.prepare('UPDATE emails SET is_read = ? WHERE id = ?').bind(isRead ? 1 : 0, id)
-    ));
+  async getEmailActivity(days: number): Promise<Array<{ day: string; type: string; count: number }>> {
+    const results = await this.db
+      .prepare(
+        `SELECT date(created_at) AS day, type, COUNT(*) AS count
+         FROM emails
+         WHERE created_at >= datetime('now', ?)
+         GROUP BY day, type`
+      )
+      .bind(`-${days - 1} days`)
+      .all<{ day: string; type: string; count: number }>();
+    return results.results || [];
   }
 
-  async markAllReceivedAsRead(): Promise<void> {
-    await this.db
-      .prepare("UPDATE emails SET is_read = 1 WHERE type = 'received' AND is_read = 0")
-      .run();
-  }
-
-  async deleteManyEmails(ids: string[]): Promise<void> {
-    if (ids.length === 0) return;
-    await this.db.batch(ids.map(id =>
-      this.db.prepare('DELETE FROM emails WHERE id = ?').bind(id)
-    ));
+  async getStorageBytes(): Promise<number> {
+    const result = await this.db
+      .prepare(
+        `SELECT
+           (SELECT COALESCE(SUM(raw_size), 0) FROM emails) +
+           (SELECT COALESCE(SUM(size), 0) FROM attachments WHERE email_id IN (SELECT id FROM emails WHERE type = 'sent'))
+         AS bytes`
+      )
+      .first<{ bytes: number }>();
+    return result?.bytes ?? 0;
   }
 
   async getEmailStats(): Promise<{
@@ -220,9 +465,9 @@ export class DatabaseQueries {
     starred: number;
   }> {
     const results = await this.db.batch([
-      this.db.prepare("SELECT COUNT(*) as count FROM emails WHERE type = 'received'"),
+      this.db.prepare("SELECT COUNT(*) as count FROM emails WHERE type = 'received' AND archived = 0"),
       this.db.prepare("SELECT COUNT(*) as count FROM emails WHERE type = 'sent'"),
-      this.db.prepare("SELECT COUNT(*) as count FROM emails WHERE is_read = 0 AND type = 'received'"),
+      this.db.prepare("SELECT COUNT(*) as count FROM emails WHERE is_read = 0 AND type = 'received' AND archived = 0"),
       this.db.prepare('SELECT COUNT(*) as count FROM emails WHERE is_starred = 1'),
     ]);
 
@@ -300,7 +545,7 @@ export class DatabaseQueries {
   async createAttachment(attachment: Omit<Attachment, 'created_at'>): Promise<void> {
     await this.db
       .prepare(
-        'INSERT INTO attachments (id, email_id, filename, content_type, size, content) VALUES (?, ?, ?, ?, ?, ?)'
+        'INSERT INTO attachments (id, email_id, filename, content_type, size, content, r2_key) VALUES (?, ?, ?, ?, ?, ?, ?)'
       )
       .bind(
         attachment.id,
@@ -308,7 +553,8 @@ export class DatabaseQueries {
         attachment.filename,
         attachment.content_type,
         attachment.size,
-        attachment.content
+        attachment.content,
+        attachment.r2_key
       )
       .run();
   }
@@ -322,7 +568,7 @@ export class DatabaseQueries {
 
   async getAttachmentsByEmailId(emailId: string): Promise<Omit<Attachment, 'content'>[]> {
     const results = await this.db
-      .prepare('SELECT id, email_id, filename, content_type, size, created_at FROM attachments WHERE email_id = ?')
+      .prepare('SELECT id, email_id, filename, content_type, size, r2_key, created_at FROM attachments WHERE email_id = ?')
       .bind(emailId)
       .all<Omit<Attachment, 'content'>>();
     return results.results || [];
@@ -333,5 +579,161 @@ export class DatabaseQueries {
       .prepare('DELETE FROM attachments WHERE email_id = ?')
       .bind(emailId)
       .run();
+  }
+
+  // ==================== Contacts ====================
+
+  async listContacts(): Promise<Contact[]> {
+    const results = await this.db
+      .prepare('SELECT * FROM contacts ORDER BY COALESCE(name, email) COLLATE NOCASE')
+      .all<Contact>();
+    return results.results || [];
+  }
+
+  /** Create or refresh a contact; an existing name is never clobbered by null */
+  async upsertContact(contact: { id: string; email: string; name?: string | null; notes?: string | null }): Promise<void> {
+    await this.db
+      .prepare(
+        `INSERT INTO contacts (id, email, name, notes)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(email) DO UPDATE SET
+           name = COALESCE(excluded.name, contacts.name),
+           notes = COALESCE(excluded.notes, contacts.notes)`
+      )
+      .bind(contact.id, contact.email.toLowerCase(), contact.name ?? null, contact.notes ?? null)
+      .run();
+  }
+
+  async updateContact(id: string, fields: { email: string; name: string | null; notes: string | null }): Promise<void> {
+    await this.db
+      .prepare('UPDATE contacts SET email = ?, name = ?, notes = ? WHERE id = ?')
+      .bind(fields.email.toLowerCase(), fields.name, fields.notes, id)
+      .run();
+  }
+
+  async deleteContact(id: string): Promise<void> {
+    await this.db
+      .prepare('DELETE FROM contacts WHERE id = ?')
+      .bind(id)
+      .run();
+  }
+
+  async touchContactLastContacted(email: string): Promise<void> {
+    await this.db
+      .prepare("UPDATE contacts SET last_contacted_at = datetime('now') WHERE email = ?")
+      .bind(email.toLowerCase())
+      .run();
+  }
+
+  // ==================== Push Subscriptions ====================
+
+  async createPushSubscription(sub: Omit<PushSubscription, 'created_at'>): Promise<void> {
+    await this.db
+      .prepare(
+        `INSERT INTO push_subscriptions (id, endpoint, p256dh, auth) VALUES (?, ?, ?, ?)
+         ON CONFLICT(endpoint) DO UPDATE SET p256dh = excluded.p256dh, auth = excluded.auth`
+      )
+      .bind(sub.id, sub.endpoint, sub.p256dh, sub.auth)
+      .run();
+  }
+
+  async listPushSubscriptions(): Promise<PushSubscription[]> {
+    const results = await this.db
+      .prepare('SELECT * FROM push_subscriptions')
+      .all<PushSubscription>();
+    return results.results || [];
+  }
+
+  async deletePushSubscription(endpoint: string): Promise<void> {
+    await this.db
+      .prepare('DELETE FROM push_subscriptions WHERE endpoint = ?')
+      .bind(endpoint)
+      .run();
+  }
+
+  // ==================== WebAuthn Credentials ====================
+
+  async createCredential(credential: Omit<Credential, 'created_at' | 'last_used_at'>): Promise<void> {
+    await this.db
+      .prepare(
+        'INSERT INTO credentials (id, credential_id, public_key, counter, transports, device_name) VALUES (?, ?, ?, ?, ?, ?)'
+      )
+      .bind(
+        credential.id,
+        credential.credential_id,
+        credential.public_key,
+        credential.counter,
+        credential.transports,
+        credential.device_name
+      )
+      .run();
+  }
+
+  async listCredentials(): Promise<Credential[]> {
+    const results = await this.db
+      .prepare('SELECT * FROM credentials ORDER BY created_at')
+      .all<Credential>();
+    return results.results || [];
+  }
+
+  async getCredentialByCredentialId(credentialId: string): Promise<Credential | null> {
+    return this.db
+      .prepare('SELECT * FROM credentials WHERE credential_id = ?')
+      .bind(credentialId)
+      .first<Credential>();
+  }
+
+  async updateCredentialCounter(credentialId: string, counter: number): Promise<void> {
+    await this.db
+      .prepare("UPDATE credentials SET counter = ?, last_used_at = datetime('now') WHERE credential_id = ?")
+      .bind(counter, credentialId)
+      .run();
+  }
+
+  async deleteCredential(id: string): Promise<void> {
+    await this.db
+      .prepare('DELETE FROM credentials WHERE id = ?')
+      .bind(id)
+      .run();
+  }
+
+  async countCredentials(): Promise<number> {
+    const result = await this.db
+      .prepare('SELECT COUNT(*) as count FROM credentials')
+      .first<{ count: number }>();
+    return result?.count ?? 0;
+  }
+
+  // ==================== WebAuthn Challenges ====================
+
+  async createChallenge(challenge: {
+    id: string;
+    type: 'registration' | 'authentication';
+    challenge: string;
+    expires_at: string;
+  }): Promise<void> {
+    await this.db.batch([
+      // Opportunistic cleanup of expired challenges
+      this.db.prepare("DELETE FROM challenges WHERE expires_at < datetime('now')"),
+      this.db
+        .prepare('INSERT INTO challenges (id, type, challenge, expires_at) VALUES (?, ?, ?, ?)')
+        .bind(challenge.id, challenge.type, challenge.challenge, challenge.expires_at),
+    ]);
+  }
+
+  /**
+   * Atomically look up and delete a challenge so it can only be used once.
+   * Returns true if the challenge existed and was still valid.
+   */
+  async consumeChallenge(type: 'registration' | 'authentication', challenge: string): Promise<boolean> {
+    const found = await this.db
+      .prepare("SELECT id FROM challenges WHERE type = ? AND challenge = ? AND expires_at > datetime('now')")
+      .bind(type, challenge)
+      .first<{ id: string }>();
+
+    if (!found) return false;
+
+    await this.db.prepare('DELETE FROM challenges WHERE id = ?').bind(found.id).run();
+    return true;
   }
 }

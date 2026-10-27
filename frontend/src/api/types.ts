@@ -7,9 +7,21 @@ export interface Attachment {
   created_at: string;
 }
 
+export type EmailType = 'received' | 'sent' | 'draft' | 'scheduled';
+
+export interface ThreadEntry {
+  id: string;
+  type: EmailType;
+  from_address: string;
+  to_address: string;
+  subject: string | null;
+  created_at: string;
+  is_read: number;
+}
+
 export interface Email {
   id: string;
-  type: 'received' | 'sent';
+  type: EmailType;
   from_address: string;
   to_address: string;
   cc: string | null;
@@ -21,9 +33,18 @@ export interface Email {
   raw_size: number | null;
   is_read: number;
   is_starred: number;
+  archived: number;
+  labels: string; // JSON array of strings
+  message_id: string | null;
+  in_reply_to: string | null;
+  thread_id: string | null;
+  delivery_status: string | null;
+  scheduled_at: string | null;
   mailgun_id: string | null;
   created_at: string;
+  attachment_count?: number;
   attachments?: Attachment[];
+  thread?: ThreadEntry[];
 }
 
 export interface EmailStats {
@@ -31,6 +52,29 @@ export interface EmailStats {
   total_sent: number;
   unread: number;
   starred: number;
+  storage_bytes: number;
+}
+
+export interface ActivityPoint {
+  day: string;
+  received: number;
+  sent: number;
+}
+
+export interface Passkey {
+  id: string;
+  deviceName: string | null;
+  createdAt: string;
+  lastUsedAt: string | null;
+}
+
+export interface Contact {
+  id: string;
+  email: string;
+  name: string | null;
+  notes: string | null;
+  last_contacted_at: string | null;
+  created_at: string;
 }
 
 export interface Address {
@@ -49,6 +93,12 @@ export interface Settings {
   cloudflare_zone_id: string;
   brevo_api_key: string;
   setup_completed: string;
+  block_remote_images?: string;
+  telegram_bot_token?: string;
+  telegram_chat_id?: string;
+  telegram_enabled?: string;
+  telegram_last_delivery?: string;
+  telegram_last_error?: string;
 }
 
 export interface SetupStatus {
@@ -67,6 +117,7 @@ export interface SetupStatus {
 export interface AuthStatus {
   authenticated: boolean;
   needsSetup: boolean;
+  hasPasskeys: boolean;
 }
 
 export interface LoginResponse {

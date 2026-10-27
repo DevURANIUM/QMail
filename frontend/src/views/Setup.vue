@@ -113,44 +113,38 @@ async function completeSetup() {
 </script>
 
 <template>
-  <div class="qm-page py-10 sm:py-12">
+  <div class="min-h-screen bg-page py-12 px-4">
     <div class="max-w-2xl mx-auto">
       <!-- Header -->
       <div class="text-center mb-8">
-        <div class="mx-auto h-16 w-16 bg-primary-500 rounded-2xl flex items-center justify-center mb-4">
-          <svg class="h-10 w-10 text-white" fill="currentColor" viewBox="0 0 24 24">
-            <path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z"/>
-          </svg>
+        <div class="mx-auto h-14 w-14 bg-accent rounded-2xl flex items-center justify-center mb-4">
+          <img src="/favicon.svg" alt="" class="h-full w-full" />
         </div>
-        <h1 class="text-2xl font-bold text-gray-900">Setup QMail</h1>
-        <p class="mt-2 text-gray-600">Configure your email services to get started</p>
+        <h1 class="font-display text-3xl text-ink">Set up Qmail</h1>
+        <p class="mt-2 text-ink-2">Connect your email services to get started</p>
       </div>
 
       <!-- Progress -->
       <div class="mb-8">
         <div class="flex items-center justify-center space-x-4">
-          <div
-            v-for="s in 3"
-            :key="s"
-            class="flex items-center"
-          >
+          <div v-for="s in 3" :key="s" class="flex items-center">
             <div
               class="w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium"
-              :class="step >= s ? 'bg-primary-500 text-white' : 'bg-gray-200 text-gray-500'"
+              :class="step >= s ? 'bg-accent text-accent-ink' : 'bg-surface-2 text-ink-3'"
             >
               {{ s }}
             </div>
             <div
               v-if="s < 3"
-              class="w-16 h-1 mx-2"
-              :class="step > s ? 'bg-primary-500' : 'bg-gray-200'"
+              class="w-16 h-1 mx-2 rounded-full"
+              :class="step > s ? 'bg-accent' : 'bg-surface-2'"
             ></div>
           </div>
         </div>
         <div class="flex justify-center mt-2 space-x-12">
-          <span class="text-xs text-gray-500">Cloudflare</span>
-          <span class="text-xs text-gray-500">Brevo</span>
-          <span class="text-xs text-gray-500">Complete</span>
+          <span class="text-xs text-ink-3">Cloudflare</span>
+          <span class="text-xs text-ink-3">Brevo</span>
+          <span class="text-xs text-ink-3">Complete</span>
         </div>
       </div>
 
@@ -160,174 +154,125 @@ async function completeSetup() {
       </div>
 
       <!-- Error -->
-      <div v-if="error" class="mb-6 rounded-md bg-red-50 p-4">
-        <p class="text-sm font-medium text-red-800">{{ error }}</p>
-      </div>
+      <div v-if="error" class="alert-error mb-6">{{ error }}</div>
 
       <!-- Step 1: Cloudflare -->
-      <div v-if="!isLoading && step === 1" class="qm-card p-5 sm:p-7">
-        <h2 class="text-lg font-medium text-gray-900 mb-4">Step 1: Cloudflare Email Routing</h2>
-        <p class="text-sm text-gray-600 mb-6">
-          Configure Cloudflare to receive emails on your domain. You'll need a Cloudflare account with your domain added.
+      <div v-if="!isLoading && step === 1" class="card p-6">
+        <h2 class="text-lg font-semibold text-ink mb-2">Step 1: Cloudflare Email Routing</h2>
+        <p class="text-sm text-ink-2 mb-6">
+          Cloudflare receives mail for your domain. You'll need an account with the domain added.
         </p>
 
-        <form @submit.prevent="saveCloudflare" class="space-y-4">
+        <form class="space-y-4" @submit.prevent="saveCloudflare">
           <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Cloudflare API Token</label>
-            <input
-              v-model="cfApiKey"
-              type="password"
-              required
-              placeholder="Enter your Cloudflare API token"
-              class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-primary-500 focus:border-primary-500"
-            />
-            <p class="mt-1 text-xs text-gray-500">
-              <a href="https://dash.cloudflare.com/profile/api-tokens" target="_blank" class="text-primary-600 hover:underline">
+            <label class="label">Cloudflare API Token</label>
+            <input v-model="cfApiKey" type="password" required placeholder="Enter your Cloudflare API token" class="input" />
+            <p class="hint">
+              <a href="https://dash.cloudflare.com/profile/api-tokens" target="_blank" rel="noopener noreferrer" class="text-accent hover:underline">
                 Create an API token with Email Routing permissions
               </a>
             </p>
           </div>
 
           <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Account ID</label>
-            <input
-              v-model="cfAccountId"
-              type="text"
-              required
-              placeholder="Your Cloudflare Account ID"
-              class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-primary-500 focus:border-primary-500"
-            />
-            <p class="mt-1 text-xs text-gray-500">Found in your Cloudflare dashboard sidebar</p>
+            <label class="label">Account ID</label>
+            <input v-model="cfAccountId" type="text" required placeholder="Your Cloudflare Account ID" class="input" />
+            <p class="hint">Found in your Cloudflare dashboard sidebar</p>
           </div>
 
           <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Domain</label>
-            <input
-              v-model="cfDomain"
-              type="text"
-              required
-              placeholder="example.com"
-              class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-primary-500 focus:border-primary-500"
-            />
+            <label class="label">Domain</label>
+            <input v-model="cfDomain" type="text" required placeholder="example.com" class="input" />
           </div>
 
           <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">
-              Forwarding Email <span class="text-gray-400 font-normal">(optional)</span>
+            <label class="label">
+              Forwarding email <span class="text-ink-3 font-normal">(optional)</span>
             </label>
-            <input
-              v-model="cfDestinationEmail"
-              type="email"
-              placeholder="your-real-email@gmail.com"
-              class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-primary-500 focus:border-primary-500"
-            />
-            <p class="mt-1 text-xs text-gray-500">If set, emails will also be forwarded to this address as backup</p>
+            <input v-model="cfDestinationEmail" type="email" placeholder="your-real-email@gmail.com" class="input" />
+            <p class="hint">If set, received mail is also forwarded there as a backup</p>
           </div>
 
-          <button
-            type="submit"
-            :disabled="isSaving"
-            class="w-full py-2 px-4 text-sm font-medium text-white bg-primary-600 rounded-lg hover:bg-primary-700 disabled:opacity-50"
-          >
-            {{ isSaving ? 'Setting up...' : 'Continue' }}
+          <button type="submit" :disabled="isSaving" class="btn btn-primary w-full">
+            {{ isSaving ? 'Setting up…' : 'Continue' }}
           </button>
         </form>
       </div>
 
       <!-- Step 2: Brevo -->
-      <div v-if="!isLoading && step === 2" class="qm-card p-5 sm:p-7">
-        <h2 class="text-lg font-medium text-gray-900 mb-4">Step 2: Brevo (Sending)</h2>
-        <p class="text-sm text-gray-600 mb-6">
-          Configure Brevo to send emails from your domain. Create a free Brevo account if you don't have one.
+      <div v-if="!isLoading && step === 2" class="card p-6">
+        <h2 class="text-lg font-semibold text-ink mb-2">Step 2: Brevo (sending)</h2>
+        <p class="text-sm text-ink-2 mb-6">
+          Brevo sends mail from your domain. A free account is enough to start.
         </p>
 
-        <form @submit.prevent="saveBrevo" class="space-y-4">
+        <form class="space-y-4" @submit.prevent="saveBrevo">
           <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Brevo API Key</label>
-            <input
-              v-model="brevoApiKey"
-              type="password"
-              required
-              placeholder="Enter your Brevo API key"
-              class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-primary-500 focus:border-primary-500"
-            />
-            <p class="mt-1 text-xs text-gray-500">
-              <a href="https://app.brevo.com/settings/keys/api" target="_blank" class="text-primary-600 hover:underline">
+            <label class="label">Brevo API Key</label>
+            <input v-model="brevoApiKey" type="password" required placeholder="Enter your Brevo API key" class="input" />
+            <p class="hint">
+              <a href="https://app.brevo.com/settings/keys/api" target="_blank" rel="noopener noreferrer" class="text-accent hover:underline">
                 Get your API key from Brevo
               </a>
             </p>
           </div>
 
           <div class="flex space-x-3">
-            <button
-              type="button"
-              @click="step = 1"
-              class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
-            >
-              Back
-            </button>
-            <button
-              type="submit"
-              :disabled="isSaving"
-              class="flex-1 py-2 px-4 text-sm font-medium text-white bg-primary-600 rounded-lg hover:bg-primary-700 disabled:opacity-50"
-            >
-              {{ isSaving ? 'Setting up...' : 'Continue' }}
+            <button type="button" class="btn btn-ghost" @click="step = 1">Back</button>
+            <button type="submit" :disabled="isSaving" class="btn btn-primary flex-1">
+              {{ isSaving ? 'Setting up…' : 'Continue' }}
             </button>
           </div>
         </form>
 
-        <div class="mt-6 p-4 bg-blue-50 rounded-lg">
-          <h3 class="text-sm font-medium text-blue-800 mb-2">Domain Verification</h3>
-          <p class="text-xs text-blue-700">
+        <div class="mt-6 p-4 bg-accent-soft rounded-lg">
+          <h3 class="text-sm font-medium text-accent mb-1">Domain verification</h3>
+          <p class="text-xs text-ink-2">
             After setup, add and verify your sending domain in the
-            <a href="https://app.brevo.com/senders/domain/list" target="_blank" class="underline">Brevo Dashboard</a>.
+            <a href="https://app.brevo.com/senders/domain/list" target="_blank" rel="noopener noreferrer" class="underline text-accent">Brevo dashboard</a>.
           </p>
         </div>
       </div>
 
       <!-- Step 3: Complete -->
-      <div v-if="!isLoading && step === 3" class="qm-card p-5 sm:p-7">
+      <div v-if="!isLoading && step === 3" class="card p-6">
         <div class="text-center">
-          <div class="mx-auto h-12 w-12 bg-green-100 rounded-full flex items-center justify-center mb-4">
-            <svg class="h-6 w-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <div class="mx-auto h-12 w-12 bg-success-soft rounded-full flex items-center justify-center mb-4">
+            <svg class="h-6 w-6 text-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
             </svg>
           </div>
-          <h2 class="text-lg font-medium text-gray-900 mb-2">Setup Complete!</h2>
-          <p class="text-sm text-gray-600 mb-6">
-            Your email services are configured. You can now receive and send emails from your domain.
+          <h2 class="text-lg font-semibold text-ink mb-2">Setup complete</h2>
+          <p class="text-sm text-ink-2 mb-6">
+            Your email services are connected. You can now send and receive mail on your domain.
           </p>
 
-          <div class="mb-6 p-4 bg-gray-50 rounded-lg text-left">
-            <h3 class="text-sm font-medium text-gray-700 mb-2">Configuration Summary</h3>
+          <div class="mb-6 p-4 bg-surface-2 rounded-lg text-left">
+            <h3 class="text-sm font-medium text-ink-2 mb-2">Configuration summary</h3>
             <dl class="space-y-1 text-sm">
               <div class="flex justify-between">
-                <dt class="text-gray-500">Domain:</dt>
-                <dd class="text-gray-900">{{ setupStatus?.domain }}</dd>
+                <dt class="text-ink-3">Domain</dt>
+                <dd class="text-ink font-mono text-xs">{{ setupStatus?.domain }}</dd>
               </div>
               <div class="flex justify-between">
-                <dt class="text-gray-500">Receiving:</dt>
-                <dd class="text-green-600">Cloudflare Email Routing</dd>
+                <dt class="text-ink-3">Receiving</dt>
+                <dd class="text-success">Cloudflare Email Routing</dd>
               </div>
               <div class="flex justify-between">
-                <dt class="text-gray-500">Sending:</dt>
-                <dd class="text-green-600">Brevo</dd>
+                <dt class="text-ink-3">Sending</dt>
+                <dd class="text-success">Brevo</dd>
               </div>
             </dl>
           </div>
 
-          <div class="bg-yellow-50 p-4 rounded-lg mb-6">
-            <p class="text-sm text-yellow-800">
-              <strong>Important:</strong> Make sure to verify your domain in both Cloudflare and Brevo dashboards to complete the setup.
+          <div class="bg-warning-soft p-4 rounded-lg mb-6 text-left">
+            <p class="text-sm text-warning">
+              <strong>Important:</strong> verify your domain in both the Cloudflare and Brevo dashboards to finish DNS setup.
             </p>
           </div>
 
-          <button
-            @click="completeSetup"
-            :disabled="isSaving"
-            class="w-full py-2 px-4 text-sm font-medium text-white bg-primary-600 rounded-lg hover:bg-primary-700 disabled:opacity-50"
-          >
-            {{ isSaving ? 'Finishing...' : 'Go to Dashboard' }}
+          <button class="btn btn-primary w-full" :disabled="isSaving" @click="completeSetup">
+            {{ isSaving ? 'Finishing…' : 'Go to dashboard' }}
           </button>
         </div>
       </div>

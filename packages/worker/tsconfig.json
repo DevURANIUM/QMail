@@ -11,7 +11,11 @@
     "noEmit": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "allowSyntheticDefaultImports": true
+    "allowSyntheticDefaultImports": true,
+    "paths": {
+      "@qmail/brevo-api": ["../brevo-api/src/index.ts"],
+      "@qmail/cloudflare-email-api": ["../cloudflare-email-api/src/index.ts"]
+    }
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules"]

@@ -15,6 +15,71 @@ export function generateId(): string {
 }
 
 /**
+ * Format a Date in SQLite's datetime('now') format (UTC, second precision).
+ * Timestamps compared against datetime('now') MUST use this format —
+ * ISO strings contain 'T' which breaks lexicographic comparison.
+ */
+export function sqliteDateTime(date: Date): string {
+  return date.toISOString().replace('T', ' ').slice(0, 19);
+}
+
+/**
+ * SHA-256 hash of a string, hex encoded.
+ * Session tokens are stored hashed so a database leak cannot replay sessions.
+ */
+export async function sha256Hex(input: string): Promise<string> {
+  const data = new TextEncoder().encode(input);
+  const digest = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, '0')).join('');
+}
+
+/**
+ * Base64url encode/decode (WebAuthn wire format)
+ */
+export function uint8ToBase64Url(bytes: Uint8Array): string {
+  let binary = '';
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+export function base64UrlToUint8(value: string): Uint8Array<ArrayBuffer> {
+  const base64 = value.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(value.length / 4) * 4, '=');
+  const binary = atob(base64);
+  const bytes = new Uint8Array(new ArrayBuffer(binary.length));
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
+/**
+ * Sanitize a filename for storage and for use in Content-Disposition.
+ * Strips path separators, control characters, and quotes.
+ */
+export function sanitizeFilename(filename: string): string {
+  const cleaned = (filename || '')
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\x00-\x1F\x7F"\\/]/g, '')
+    .replace(/\.\.+/g, '.')
+    .trim()
+    .slice(0, 255);
+  return cleaned || 'unnamed';
+}
+
+/**
+ * Build a safe Content-Disposition attachment header for a filename.
+ * ASCII fallback plus RFC 5987 encoded UTF-8 name.
+ */
+export function contentDispositionAttachment(filename: string): string {
+  const safe = sanitizeFilename(filename);
+  // eslint-disable-next-line no-control-regex
+  const asciiFallback = safe.replace(/[^\x20-\x7E]/g, '_');
+  return `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encodeURIComponent(safe)}`;
+}
+
+/**
  * Hash a password using PBKDF2 with SHA-256
  * Uses 100,000 iterations for security against brute force
  */

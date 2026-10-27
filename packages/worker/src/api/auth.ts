@@ -1,10 +1,38 @@
 import { Hono } from 'hono';
 import { DatabaseQueries } from '../db/queries';
-import { hashPassword, verifyPassword, generateToken, generateId } from '../lib/utils';
+import { hashPassword, verifyPassword, generateToken, generateId, sha256Hex, sqliteDateTime } from '../lib/utils';
+import { isValidPassword } from '../lib/validation';
 
 export interface Env {
   DB: D1Database;
   JWT_SECRET?: string;
+}
+
+const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+function extractBearerToken(header: string | undefined): string | null {
+  if (!header) return null;
+  const match = header.match(/^Bearer\s+(.+)$/i);
+  return match ? match[1] : null;
+}
+
+/**
+ * Create a session for the (single) admin user and return the raw token.
+ * Only the SHA-256 hash of the token is persisted.
+ */
+export async function createAdminSession(db: DatabaseQueries): Promise<{ token: string; expiresAt: string }> {
+  const token = generateToken(48);
+  const expires = new Date(Date.now() + SESSION_TTL_MS);
+
+  await db.createSession({
+    id: generateId(),
+    token: await sha256Hex(token),
+    expires_at: sqliteDateTime(expires),
+  });
+
+  await db.cleanExpiredSessions();
+
+  return { token, expiresAt: expires.toISOString() };
 }
 
 const auth = new Hono<{ Bindings: Env }>();
@@ -37,18 +65,7 @@ auth.post('/login', async (c) => {
       return c.json({ error: 'Invalid password' }, 401);
     }
 
-    // Create session
-    const token = generateToken(48);
-    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(); // 7 days
-
-    await db.createSession({
-      id: generateId(),
-      token,
-      expires_at: expiresAt,
-    });
-
-    // Clean up expired sessions
-    await db.cleanExpiredSessions();
+    const { token, expiresAt } = await createAdminSession(db);
 
     return c.json({
       success: true,
@@ -68,11 +85,10 @@ auth.post('/logout', async (c) => {
   const db = new DatabaseQueries(c.env.DB);
 
   try {
-    const authHeader = c.req.header('Authorization');
-    const token = authHeader?.replace('Bearer ', '');
+    const token = extractBearerToken(c.req.header('Authorization'));
 
     if (token) {
-      await db.deleteSession(token);
+      await db.deleteSession(await sha256Hex(token));
     }
 
     return c.json({ success: true });
@@ -97,23 +113,16 @@ auth.post('/setup', async (c) => {
 
     const { password } = await c.req.json<{ password: string }>();
 
-    if (!password || password.length < 8) {
-      return c.json({ error: 'Password must be at least 8 characters' }, 400);
+    const passwordCheck = isValidPassword(password);
+    if (!passwordCheck.valid) {
+      return c.json({ error: passwordCheck.error }, 400);
     }
 
     // Hash and store password
     const hash = await hashPassword(password);
     await db.setSetting('admin_password_hash', hash);
 
-    // Create initial session
-    const token = generateToken(48);
-    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
-
-    await db.createSession({
-      id: generateId(),
-      token,
-      expires_at: expiresAt,
-    });
+    const { token, expiresAt } = await createAdminSession(db);
 
     return c.json({
       success: true,
@@ -133,30 +142,33 @@ auth.get('/status', async (c) => {
   const db = new DatabaseQueries(c.env.DB);
 
   try {
-    const authHeader = c.req.header('Authorization');
-    const token = authHeader?.replace('Bearer ', '');
+    const token = extractBearerToken(c.req.header('Authorization'));
+    const hasPasskeys = (await db.countCredentials()) > 0;
 
     if (!token) {
       const hasPassword = await db.getSetting('admin_password_hash');
       return c.json({
         authenticated: false,
         needsSetup: !hasPassword,
+        hasPasskeys,
       });
     }
 
-    const session = await db.getSessionByToken(token);
+    const session = await db.getSessionByToken(await sha256Hex(token));
 
     if (!session) {
       const hasPassword = await db.getSetting('admin_password_hash');
       return c.json({
         authenticated: false,
         needsSetup: !hasPassword,
+        hasPasskeys,
       });
     }
 
     return c.json({
       authenticated: true,
       needsSetup: false,
+      hasPasskeys,
     });
   } catch (error) {
     console.error('Auth status error:', error);
@@ -171,14 +183,13 @@ auth.post('/change-password', async (c) => {
   const db = new DatabaseQueries(c.env.DB);
 
   try {
-    const authHeader = c.req.header('Authorization');
-    const token = authHeader?.replace('Bearer ', '');
+    const token = extractBearerToken(c.req.header('Authorization'));
 
     if (!token) {
       return c.json({ error: 'Not authenticated' }, 401);
     }
 
-    const session = await db.getSessionByToken(token);
+    const session = await db.getSessionByToken(await sha256Hex(token));
     if (!session) {
       return c.json({ error: 'Invalid session' }, 401);
     }
@@ -199,8 +210,9 @@ auth.post('/change-password', async (c) => {
       return c.json({ error: 'Current password is incorrect' }, 401);
     }
 
-    if (!newPassword || newPassword.length < 8) {
-      return c.json({ error: 'New password must be at least 8 characters' }, 400);
+    const passwordCheck = isValidPassword(newPassword);
+    if (!passwordCheck.valid) {
+      return c.json({ error: passwordCheck.error }, 400);
     }
 
     // Update password
@@ -225,14 +237,13 @@ export async function authMiddleware(
 ): Promise<Response | void> {
   const db = new DatabaseQueries(c.env.DB);
 
-  const authHeader = c.req.header('Authorization');
-  const token = authHeader?.replace('Bearer ', '');
+  const token = extractBearerToken(c.req.header('Authorization'));
 
   if (!token) {
     return c.json({ error: 'Not authenticated' }, 401);
   }
 
-  const session = await db.getSessionByToken(token);
+  const session = await db.getSessionByToken(await sha256Hex(token));
 
   if (!session) {
     return c.json({ error: 'Invalid or expired session' }, 401);

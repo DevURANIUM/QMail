@@ -11,6 +11,7 @@ export const useEmailsStore = defineStore('emails', () => {
     total_sent: 0,
     unread: 0,
     starred: 0,
+    storage_bytes: 0,
   });
   const isLoading = ref(false);
   const currentView = ref<'inbox' | 'sent' | 'starred'>('inbox');
@@ -52,20 +53,7 @@ export const useEmailsStore = defineStore('emails', () => {
     }
   }
 
-  async function sendEmail(data: {
-    from: string;
-    to: string;
-    cc?: string;
-    bcc?: string;
-    subject: string;
-    text?: string;
-    html?: string;
-    attachments?: Array<{
-      filename: string;
-      content: string;
-      contentType?: string;
-    }>;
-  }) {
+  async function sendEmail(data: Parameters<typeof api.sendEmail>[0]) {
     const response = await api.sendEmail(data);
     await fetchEmails('sent');
     await fetchStats();
@@ -105,28 +93,6 @@ export const useEmailsStore = defineStore('emails', () => {
     await fetchStats();
   }
 
-  async function bulkAction(ids: string[], action: 'read' | 'unread' | 'delete') {
-    await api.bulkEmailAction(ids, action);
-    const selected = new Set(ids);
-    if (action === 'delete') {
-      emails.value = emails.value.filter(email => !selected.has(email.id));
-    } else {
-      const readValue = action === 'read' ? 1 : 0;
-      emails.value.forEach(email => {
-        if (selected.has(email.id)) email.is_read = readValue;
-      });
-    }
-    await fetchStats();
-  }
-
-  async function markAllRead() {
-    await api.markAllEmailsRead();
-    emails.value.forEach(email => {
-      if (email.type === 'received') email.is_read = 1;
-    });
-    await fetchStats();
-  }
-
   function setView(view: 'inbox' | 'sent' | 'starred') {
     currentView.value = view;
   }
@@ -152,8 +118,6 @@ export const useEmailsStore = defineStore('emails', () => {
     markAsUnread,
     toggleStar,
     deleteEmail,
-    bulkAction,
-    markAllRead,
     setView,
     clearCurrentEmail,
   };

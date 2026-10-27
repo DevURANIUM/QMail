@@ -47,6 +47,31 @@ const router = createRouter({
           component: () => import('@/views/EmailView.vue'),
         },
         {
+          path: 'drafts',
+          name: 'drafts',
+          component: () => import('@/views/Drafts.vue'),
+        },
+        {
+          path: 'folders',
+          name: 'folders',
+          component: () => import('@/views/Folders.vue'),
+        },
+        {
+          path: 'archive',
+          name: 'archive',
+          component: () => import('@/views/Archive.vue'),
+        },
+        {
+          path: 'label/:label',
+          name: 'label',
+          component: () => import('@/views/LabelView.vue'),
+        },
+        {
+          path: 'contacts',
+          name: 'contacts',
+          component: () => import('@/views/Contacts.vue'),
+        },
+        {
           path: 'compose',
           name: 'compose',
           component: () => import('@/views/Compose.vue'),

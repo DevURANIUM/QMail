@@ -1,23 +1,24 @@
 {
   "name": "@qmail/worker",
   "version": "1.0.0",
-  "description": "QMail Cloudflare Worker backend",
+  "description": "Qmail Cloudflare Worker backend",
   "main": "src/index.ts",
   "scripts": {
-    "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
-    "db:migrate": "wrangler d1 execute qmail-db --local --file=./src/db/schema.sql",
-    "db:migrate:prod": "wrangler d1 execute qmail-db --remote --file=./src/db/schema.sql",
-    "tail": "wrangler tail"
+    "dev": "npx wrangler dev",
+    "deploy": "npx wrangler deploy",
+    "db:migrate": "npx wrangler d1 execute DB --local --file=./src/db/schema.sql",
+    "db:migrate:prod": "npx wrangler d1 execute DB --remote --file=./src/db/schema.sql",
+    "tail": "npx wrangler tail"
   },
   "dependencies": {
-    "@qmail/cloudflare-email-api": "workspace:*",
     "@qmail/brevo-api": "workspace:*",
-    "hono": "^4.1.0",
-    "postal-mime": "^2.2.0"
+    "@qmail/cloudflare-email-api": "workspace:*",
+    "@simplewebauthn/server": "^13.3.3",
+    "hono": "^4.13.14",
+    "postal-mime": "^2.7.6"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20240117.0",
-    "typescript": "^5.3.3"
+    "@cloudflare/workers-types": "^4.20260702.1",
+    "typescript": "~5.9.3"
   }
 }

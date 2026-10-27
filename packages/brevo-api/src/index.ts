@@ -1,12 +1,15 @@
 import { BrevoClient } from './client';
 import { SendersAPI } from './senders';
 import { MessagesAPI } from './messages';
+import { WebhooksAPI } from './webhooks';
 import type { BrevoConfig, SendMessageOptions, SendResponse, EmailAddress } from './types';
 
 export * from './types';
 export { BrevoClient } from './client';
 export { SendersAPI } from './senders';
 export { MessagesAPI } from './messages';
+export { WebhooksAPI } from './webhooks';
+export type { BrevoWebhook } from './webhooks';
 
 /**
  * Main Brevo API wrapper
@@ -16,11 +19,13 @@ export class BrevoAPI {
   private client: BrevoClient;
   public senders: SendersAPI;
   public messages: MessagesAPI;
+  public webhooks: WebhooksAPI;
 
   constructor(config: BrevoConfig) {
     this.client = new BrevoClient(config);
     this.senders = new SendersAPI(this.client);
     this.messages = new MessagesAPI(this.client);
+    this.webhooks = new WebhooksAPI(this.client);
   }
 
   /**
