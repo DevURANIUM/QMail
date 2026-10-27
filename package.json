@@ -2,21 +2,20 @@
   "name": "qmail",
   "version": "1.0.0",
   "private": true,
-  "description": "Self-hosted email dashboard using Cloudflare Email Routing and Brevo",
+  "description": "Free custom email solution using Cloudflare Email Routing and Mailgun",
   "scripts": {
-    "dev": "pnpm run build:libs && pnpm --filter @qmail/worker dev",
+    "dev": "pnpm --filter @qmail/worker dev",
     "dev:frontend": "pnpm --filter @qmail/frontend dev",
-    "build": "pnpm run build:libs && pnpm run build:frontend",
-    "build:libs": "pnpm --filter @qmail/brevo-api build && pnpm --filter @qmail/cloudflare-email-api build",
+    "build": "pnpm -r build",
     "build:frontend": "pnpm --filter @qmail/frontend build",
-    "deploy": "pnpm run build && pnpm --filter @qmail/worker run deploy",
+    "deploy": "pnpm build && pnpm --filter @qmail/worker run deploy",
     "db:migrate": "pnpm --filter @qmail/worker db:migrate",
     "db:migrate:prod": "pnpm --filter @qmail/worker db:migrate:prod"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=22.12.0"
   },
   "devDependencies": {
-    "wrangler": "^4"
+    "wrangler": "^4.152.0"
   }
 }

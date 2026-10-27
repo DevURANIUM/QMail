@@ -1,433 +1,372 @@
-# QMail
+# Qmail
 
-QMail is a modern, self-hosted email dashboard built on Cloudflare Workers. It receives email through Cloudflare Email Routing, stores messages in Cloudflare D1, and sends transactional email through Brevo.
+Qmail is the project name throughout the app, workspace packages, notifications and exports.
+Repository: https://github.com/DevURANIUM/QMail.
+The production Worker is `qmail`; deployment preserves its existing D1 binding.
 
-## Credits and Project History
+Self-hosted email on your own domain, running entirely on Cloudflare's edge.
 
-QMail is based on the original [AvaMail project by MrOplus](https://github.com/MrOplus/AvaMail). We forked the original project and developed it further with our own design direction, extensive UI and theme improvements, QMail branding, inbox and sent-message bulk actions, enhanced search and filtering, dark mode, responsive layouts, bug fixes, security improvements, and expanded setup documentation.
+Receive mail through **Cloudflare Email Routing**, store it in a **D1** database
+(attachments optionally in **R2**), send through **Brevo**, and manage
+everything from a **Vue 3** web app served by the same Worker. One deploy, no
+servers, free-tier friendly.
 
-Full credit for the original project and its foundation belongs to [MrOplus](https://github.com/MrOplus). QMail is an independently maintained and significantly modified derivative of that work.
+> 🤖 Installing with an AI agent (Claude Code, etc.)? Point it at
+> [`agent-install.md`](./agent-install.md) — a step-by-step install guide written for agents.
 
 ## Features
 
-- Receive email on a custom domain
-- Send email through the Brevo Transactional Email API
-- Responsive Vue 3 interface with light and dark themes
-- Inbox and sent-message search
-- Unread and starred filters
-- Multi-select and bulk delete
-- Mark selected or all inbox messages as read
-- Star inbox and sent messages
-- Send and receive attachments
-- Optional forwarding to a verified backup address
-- PBKDF2 password hashing, token sessions, validation, security headers, and rate limiting
-- Serverless deployment on Cloudflare Workers and D1
+**Mail**
+
+- Catch-all receiving on your domain — every address at your domain lands in one inbox
+- Sending via Brevo's transactional API, with delivery tracking (delivered / opened / bounced) reported back by webhook
+- Conversation threading via `Message-ID` / `In-Reply-To` headers
+- Drafts, reply-with-quote, forwarding (original attachments included), and scheduled send (cron-delivered)
+- Archive, labels, starring, and full-text search (SQLite FTS5 over subjects, bodies, and addresses)
+- Attachments up to 5MB/file in D1, or 25MB/file with an optional R2 bucket
+- Contacts with autocomplete in Compose — people you write to are captured automatically
+- Per-message `.eml` download and whole-mailbox **mbox export**
+- Optional forwarding of received mail to a personal inbox as backup
+- Telegram forwarding through your own bot to a private numeric user ID, with a test message and delivery status
+
+**App**
+
+- Vue 3 SPA with full light / dark / system theming
+- Dashboard: daily send/receive activity chart, recent messages, system status, storage usage
+- Installable PWA with payload-free push notifications on new mail
+- Remote-image blocking (tracking-pixel protection) with per-email reveal
+
+**Security**
+
+- Passkey sign-in (FIDO2/WebAuthn) — Touch ID, Windows Hello, security keys — plus a password fallback
+- PBKDF2 password hashing (100k iterations), session tokens stored as SHA-256 hashes
+- Received HTML sanitized with DOMPurify before rendering
+- Strict Content-Security-Policy and security headers on every response
+- Shared rate limit for password and passkey login attempts
+- Server-side attachment validation, safe download headers, sanitized filenames
 
 ## Architecture
 
-```text
-Incoming mail
-     |
-     v
-Cloudflare Email Routing
-     |
-     v
-QMail Worker (Hono) <----> Cloudflare D1
-     |
-     +----> Vue 3 dashboard
+```
+                        Cloudflare Edge
+┌────────────────────────────────────────────────────────────────┐
+│                                                                │
+│  Email Routing ──▶ Email Worker ──┬─▶ D1 (mail, contacts,      │
+│   (catch-all)                     │      settings, sessions,   │
+│                                   │      FTS index)            │
+│  Cron (*/5) ──▶ scheduled send ───┤                            │
+│                                   ├─▶ R2 (attachments,         │
+│  HTTPS ──▶ Worker (Hono API) ─────┘      optional)             │
+│              │                                                 │
+│              └─▶ Vue 3 SPA (static assets)                     │
+│                                                                │
+└──────────────┬─────────────────────────────┬───────────────────┘
+               │ send                        │ delivery webhooks
+               ▼                             │
+             Brevo ◀─────────────────────────┘
 
-Vue 3 dashboard ----> QMail Worker ----> Brevo API ----> Outgoing mail
+  Browser ◀── Web Push (VAPID, no payload) ── Email Worker
 ```
 
-## Installation
+## Quick start
 
-### 1. Clone the repository
+**Prerequisites**: a Cloudflare account with a domain, a [Brevo](https://www.brevo.com)
+account (free tier is fine), Node.js 18+, and pnpm.
 
 ```bash
-git clone https://github.com/DevURANIUM/qmail.git
-cd qmail
+# 1. Clone and install
+git clone https://github.com/DevURANIUM/QMail.git Qmail
+cd Qmail
 pnpm install
+
+# 2. Authenticate wrangler
+npx wrangler login
+
+# 3. Create the database
+cd packages/worker
+npx wrangler d1 create qmail-db          # note the database_id in the output
+
+# 4. Configure
+cp wrangler.toml.example wrangler.toml     # then paste your database_id into it
+
+# 5. Initialize the schema (fresh installs only — see Upgrading otherwise)
+npx wrangler d1 execute qmail-db --remote --file=./src/db/schema.sql
+
+# 6. Build and deploy
+cd ../..
+pnpm -r build
+cd packages/worker
+npx wrangler deploy
 ```
 
-### 2. Install dependencies
+Your app is now live at `https://qmail.<your-subdomain>.workers.dev`.
 
-Dependencies are installed by the `pnpm install` command above. Continue with the production deployment steps below.
+### First-run configuration (in the app)
 
-## Production Deployment
+1. **Open the URL** and create your admin password. Add a **passkey** under
+   Settings → Security for passwordless sign-in.
+2. **Settings → Cloudflare** — create an API token
+   ([dash.cloudflare.com → API Tokens](https://dash.cloudflare.com/profile/api-tokens)
+   → Create Custom Token) with these permissions, then enter it with your
+   Account ID and domain:
 
-### 1. Create the Wrangler configuration
+   | Scope | Permission | Access |
+   |---|---|---|
+   | Account | Email Routing Addresses | Edit |
+   | Zone | Zone | Read |
+   | Zone | DNS | Edit |
+   | Zone | Email Routing Rules | Edit |
+   | Zone | Zone Settings | Edit |
 
-Linux:
+   Saving enables Email Routing on your zone and points the catch-all rule at
+   the worker. If inbound mail ever stops, the **Fix Email Routing** button
+   re-applies the rule.
+3. **Settings → Brevo** — paste your Brevo API key
+   ([app.brevo.com → SMTP & API](https://app.brevo.com/settings/keys/api)).
+   Saving also auto-registers the delivery-status webhook.
+4. **Verify your sending domain in Brevo**
+   ([Senders & Domains](https://app.brevo.com/senders/domain/list)) — add the
+   SPF / DKIM / DMARC records it gives you, or outbound mail will be rejected
+   or spam-foldered.
+5. **Settings → Addresses** — add at least one From address.
+6. Click **Complete Setup**, then test both directions: mail an external
+   message to `anything@yourdomain.com` and send one out via Compose.
 
-```bash
-cp packages/worker/wrangler.toml.example packages/worker/wrangler.toml
-```
+## Configuration reference
 
-### 2. Log in to Cloudflare with Wrangler
-
-From the project root:
-
-```bash
-pnpm exec wrangler login
-pnpm exec wrangler whoami
-```
-
-Wrangler login is used only for creating Cloudflare resources and deploying the Worker. It is separate from the restricted API token entered later in the QMail setup screen.
-
-### 3. Create a D1 database
-
-```bash
-pnpm exec wrangler d1 create qmail-db
-```
-
-The command returns a D1 `database_id`. Do not publish this ID with your repository.
-
-### 4. Add the D1 database ID
-
-Copy the example configuration:
-
-```bash
-cp packages/worker/wrangler.toml.example packages/worker/wrangler.toml
-```
-
-Open `packages/worker/wrangler.toml` and replace the zero UUID with the ID returned by the previous command:
+`wrangler.toml` (gitignored; copy from `wrangler.toml.example`):
 
 ```toml
-name = "qmail"
+name = "qmail"                 # worker name — also the catch-all rule target
 main = "src/index.ts"
-compatibility_date = "2026-08-01"
+compatibility_date = "2024-01-01"
 
 [[d1_databases]]
 binding = "DB"
 database_name = "qmail-db"
-database_id = "YOUR_D1_DATABASE_ID"
+database_id = "YOUR_DATABASE_ID_HERE"
 
 [assets]
 directory = "../../frontend/dist"
+binding = "ASSETS"               # SPA deep links (/inbox, /login, …)
+run_worker_first = true          # security headers on every response
+
+# Optional — see "R2 attachments" below
+# [[r2_buckets]]
+# binding = "ATTACHMENTS"
+# bucket_name = "qmail-attachments"
+
+[triggers]
+crons = ["*/5 * * * *"]          # scheduled send + session cleanup
 
 [vars]
-APP_NAME = "QMail"
+APP_NAME = "Qmail"
 ```
 
-`wrangler.toml` is ignored by Git. Keep the Worker name as `qmail`, because the Email Routing setup connects its catch-all rule to a Worker with that name.
+Secrets (Cloudflare token, Brevo key) are **never** placed in config files —
+they're entered through the app UI and stored in D1.
 
-### 5. Create the production database tables
+### Custom folders
+
+Use **Folders** in the sidebar to create, rename or delete folders. Select Inbox
+or Sent as a source, select messages individually or with **Select page**, choose
+a destination and use **Move selected**. Pages contain 50 messages; API batches
+are capped at 100. A message belongs to one custom folder; its labels remain intact.
+Moving back to Original mailbox restores the message to Inbox or Sent. Deleting
+a folder preserves its messages. Drafts and scheduled messages cannot be moved.
+
+Existing installations must apply this additive migration **before deploying**:
 
 ```bash
-pnpm db:migrate:prod
+cd packages/worker
+npx wrangler d1 execute qmail-db --remote --file=./src/db/migrations/003-folders.sql
 ```
 
-This command writes the QMail schema to the remote `qmail-db` database.
+Fresh installs include these tables in `schema.sql`. No remote migration is
+performed automatically.
 
-### 6. Build and deploy
+### Install Qmail as an app (PWA)
+
+Open Qmail over HTTPS in Chrome or Edge and use **Install Qmail** in the
+sidebar (also in the mobile menu). When the browser offers native installation,
+the button opens its prompt. Otherwise it shows browser-menu instructions.
+On iPhone/iPad, use Safari → Share → Add to Home Screen → Add.
+The install button is hidden when running in standalone mode.
+
+An offline launch shows a reconnect page. Only that public offline document is
+cached: messages, API responses, attachments and login sessions are never added
+to the service worker cache. Reading and sending email requires connectivity.
+Localhost can be used for development; production installation requires HTTPS.
+Browser support and installation prompts vary, including in embedded browsers.
+
+PWA regression checks: `node --test frontend/pwa.test.mjs`.
+
+### Telegram forwarding
+
+Open **Settings → Telegram**. Create a bot with `@BotFather`, enter its token
+and the recipient's positive numeric Telegram user ID, enable forwarding and
+save. The recipient must first open the bot and press **Start**. Use **Send test
+message** after saving to verify delivery. Leave the token blank when editing to
+keep the saved token; disable forwarding and save to pause.
+
+The token is stored server-side in D1 like the existing provider credentials and
+is masked in API responses. Incoming sender, recipient, subject and plain-text
+body are sent to Telegram; HTML-only messages receive a notice to open Qmail.
+Attachments remain in Qmail. Long bodies are limited to 24,000 UTF-16 units and
+split into messages below Telegram's size limit. Delivery is best-effort (no
+queue/retry); Telegram failures never reject a stored email. Last delivery and
+last error appear in Settings. Email content is shared with Telegram when enabled.
+No database migration is needed for this integration.
+
+Regression tests: `node --test packages/worker/telegram.test.mjs`.
+
+### R2 attachments (optional)
+
+Without R2, attachments live base64-inline in D1 (5MB per file). To raise the
+cap to 25MB and keep the database lean:
+
+1. Enable R2 once in the Cloudflare dashboard (the API errors with code `10042`
+   until you do).
+2. `npx wrangler r2 bucket create qmail-attachments`
+3. Uncomment the `[[r2_buckets]]` block in `wrangler.toml` and redeploy.
+
+Existing inline attachments keep working — reads fall back to D1 automatically.
+
+## Upgrading
+
+Fresh installs use `schema.sql` only. Existing databases apply what they're
+missing, **each file exactly once**:
 
 ```bash
-pnpm run deploy
+cd packages/worker
+# pre-passkey installs first bring the base schema up to date:
+npx wrangler d1 execute qmail-db --remote --file=./src/db/schema.sql
+# then the structural migration (adds threading/drafts/FTS/etc. — run ONCE):
+npx wrangler d1 execute qmail-db --remote --file=./src/db/migrations/002-features.sql
 ```
 
-The deploy script builds the internal packages and Vue frontend before deploying the Worker. Wrangler prints a URL similar to:
+Unsure which generation you're on? `agent-install.md` has a decision table keyed off
+which tables exist. After migrating: `pnpm -r build` and `npx wrangler deploy`.
 
-```text
-https://qmail.YOUR_SUBDOMAIN.workers.dev
-```
+Upgrading from a pre-passkey version signs everyone out once (session tokens
+are now stored hashed) — just log in again.
 
-Open the URL and create a strong administrator password.
-
-## Cloudflare Email Routing
-
-### Enable Email Routing
-
-1. Open your domain in the Cloudflare Dashboard.
-2. Open **Email Routing**.
-3. Select **Enable Email Routing** or **Get started**.
-4. Allow Cloudflare to create the required DNS records.
-5. Wait until Email Routing reports that the domain is ready.
-
-Do not copy MX values from a random tutorial. Use the exact DNS records Cloudflare generates for your domain. Existing MX records can conflict with Email Routing.
-
-### Create the QMail API token
-
-QMail needs a restricted Cloudflare API token to find your zone and manage Email Routing. This token is not the same as Wrangler login.
-
-1. Open **Cloudflare Dashboard > My Profile > API Tokens**.
-2. Select **Create Token**.
-3. Select **Create Custom Token**.
-4. Name it `QMail Email Routing`.
-5. Add these permissions:
-
-| Scope | Permission | Access | Purpose |
-|---|---|---:|---|
-| Zone | Zone | Read | Find the domain and Zone ID |
-| Zone | Zone Settings | Edit | Enable Email Routing |
-| Zone | Email Routing Rules | Edit | Create or repair the Worker catch-all rule |
-| Account | Email Routing Addresses | Edit | Register an optional forwarding address |
-
-Restrict the resources to your own account and domain:
-
-```text
-Zone Resources:    Include -> Specific zone -> your domain
-Account Resources: Include -> your Cloudflare account
-```
-
-QMail does not require your Global API Key. Avoid giving the token unrelated permissions such as Workers Scripts Edit or D1 Edit.
-
-Copy the token when Cloudflare displays it. It will not be shown again.
-
-### Find your Account ID
-
-Open the overview page for your domain in Cloudflare. The Account ID is shown in the account or API section of the dashboard.
-
-### Complete Cloudflare setup in QMail
-
-Enter these values in the QMail setup screen:
-
-| Field | Description |
-|---|---|
-| API Token | Restricted token created above |
-| Account ID | Cloudflare Account ID |
-| Domain | Bare domain such as `example.com` |
-| Forwarding Email | Optional backup destination |
-
-If you enter a forwarding destination, Cloudflare sends a verification email to that address. Approve it before relying on forwarding.
-
-QMail creates a catch-all routing rule that targets the `qmail` Worker. You can verify the rule in **Cloudflare > Email Routing > Routing Rules**.
-
-## Brevo Setup
-
-Cloudflare handles incoming mail. Brevo handles outgoing mail.
-
-### 1. Authenticate your sending domain
-
-1. Sign in to [Brevo](https://www.brevo.com/).
-2. Open **Senders & IP > Domains** or **Senders, Domains & Dedicated IPs**.
-3. Add your domain.
-4. Copy every DNS record generated by Brevo into Cloudflare DNS.
-5. Return to Brevo and select **Authenticate** or **Verify**.
-
-Brevo may provide domain verification, DKIM, DMARC, and sender-authentication records. Always use the exact names and values shown in your Brevo account.
-
-Important DNS rules:
-
-- Keep email authentication records set to **DNS only**.
-- Copy TXT and DKIM values exactly.
-- Do not create multiple DMARC records for the same host.
-- Do not publish multiple separate SPF records for the same host.
-
-### 2. Create a sender
-
-Open **Senders** in Brevo and add an address on your authenticated domain, for example:
-
-```text
-QMail <hello@example.com>
-```
-
-Complete any verification Brevo requests.
-
-### 3. Create a Brevo API key
-
-1. Open your Brevo account menu.
-2. Go to **SMTP & API**.
-3. Open the **API Keys** tab.
-4. Select **Generate a new API key**.
-5. Name it `QMail Production`.
-6. Copy the key immediately and store it securely.
-
-Brevo shows the complete key only once. If it is lost or exposed, delete it and generate a replacement.
-
-### 4. Connect Brevo to QMail
-
-Enter the API key during the Brevo step of the QMail setup wizard. After setup, open **Settings > Addresses** and add sender addresses that Brevo allows.
-
-## Recommended Setup Order
-
-1. Add and activate your domain in Cloudflare.
-2. Install dependencies with `pnpm install`.
-3. Authenticate Wrangler.
-4. Create D1 and place its ID in the local `wrangler.toml`.
-5. Apply the production database schema.
-6. Build and deploy QMail.
-7. Enable Cloudflare Email Routing.
-8. Create the restricted Cloudflare API token.
-9. Authenticate the domain and sender in Brevo.
-10. Create the Brevo API key.
-11. Complete the QMail setup wizard.
-12. Test one incoming and one outgoing message.
-
-## Available Commands
-
-Run all commands from the project root.
+## Development
 
 ```bash
-# Install dependencies
-pnpm install
+# Terminal 1 — worker + local D1 on :8787
+cd packages/worker
+npx wrangler d1 execute qmail-db --local --file=./src/db/schema.sql
+npx wrangler dev
 
-# Build internal API libraries and the Vue frontend
-pnpm run build
-
-# Initialize production D1
-pnpm db:migrate:prod
-
-# Build and deploy to Cloudflare
-pnpm run deploy
-
-# View production Worker logs
-pnpm --filter @qmail/worker tail
+# Terminal 2 — Vite dev server with HMR on :5173 (proxies /api to :8787)
+cd frontend
+pnpm run dev
 ```
 
-## Updating QMail
+Test the cron locally: start with `npx wrangler dev --test-scheduled`, then
+`curl "http://localhost:8787/__scheduled?cron=*/5+*+*+*+*"`.
 
-After pulling a new version:
+### Project structure
 
-```bash
-pnpm install
-pnpm run build
-pnpm run deploy
+```
+Qmail/
+├── frontend/                  # Vue 3 SPA (Vite, Tailwind, Pinia)
+│   ├── public/                # PWA manifest, service worker, theme bootstrap
+│   └── src/
+│       ├── api/               # typed API client
+│       ├── components/        # EmailList, ActivityChart
+│       ├── stores/            # auth, emails, theme
+│       ├── utils/             # avatar helpers
+│       └── views/             # Dashboard, Inbox, EmailView, Compose,
+│                              # Drafts, Archive, Contacts, Settings, …
+├── packages/
+│   ├── worker/                # Cloudflare Worker (Hono)
+│   │   └── src/
+│   │       ├── api/           # routes: auth, webauthn, emails, contacts,
+│   │       │                  # push, webhooks, settings, setup
+│   │       ├── db/            # schema.sql, migrations/, queries.ts
+│   │       ├── lib/           # mailer, attachments (R2/D1), push (VAPID),
+│   │       │                  # eml builder, rate limiting, validation
+│   │       ├── email-handler.ts   # inbound mail: parse, thread, store, notify
+│   │       └── index.ts           # fetch + email + scheduled entrypoints
+│   ├── brevo-api/             # Brevo REST wrapper (send, senders, webhooks)
+│   └── cloudflare-email-api/  # Cloudflare REST wrapper (zones, routing, DNS)
+└── agent-install.md           # agent-oriented install guide
 ```
 
-If the database schema changed, run this before deployment:
+## API reference
 
-```bash
-pnpm db:migrate:prod
-```
+All endpoints are under `/api`. Everything except login/setup ceremonies and
+the Brevo webhook requires `Authorization: Bearer <token>`.
 
-## Usage
+### Auth
 
-### Receive email
+| Endpoint | Method | Description |
+|---|---|---|
+| `/auth/status` | GET | Auth state, `needsSetup`, `hasPasskeys` |
+| `/auth/setup` | POST | Create the admin password (first run) |
+| `/auth/login` | POST | Password login (rate limited: 5 / 15 min) |
+| `/auth/logout` | POST | Invalidate the session |
+| `/auth/change-password` | POST | Change password |
+| `/auth/webauthn/register/options` · `/verify` | POST | Passkey registration ceremony |
+| `/auth/webauthn/login/options` · `/verify` | POST | Passkey login ceremony (shares the login rate limit) |
+| `/auth/webauthn/credentials` | GET | List passkeys |
+| `/auth/webauthn/credentials/:id` | DELETE | Remove a passkey |
 
-With the catch-all rule enabled, incoming mail is received by Cloudflare, delivered to the Worker, parsed, and stored in D1. A copy can optionally be forwarded to a verified address.
+### Mail
 
-### Send email
+| Endpoint | Method | Description |
+|---|---|---|
+| `/emails` | GET | List (`type=received\|sent\|draft\|scheduled`, `archived`, `label`, `unread`, `starred`, `limit`, `offset`) |
+| `/emails/search` | GET | Full-text search (`?q=`) |
+| `/emails/labels` | GET | All labels in use |
+| `/emails/stats` | GET | Counts + storage usage |
+| `/emails/activity` | GET | Daily send/receive counts (`?days=14`) |
+| `/emails/export/mbox` | GET | Whole-mailbox mbox download |
+| `/emails/drafts` | POST | Create or update a draft |
+| `/emails/send` | POST | Send — supports `draftId`, `scheduleAt`, `replyToEmailId`, `forwardOfEmailId`, attachments |
+| `/emails/:id` | GET | Single email with attachments + conversation thread |
+| `/emails/:id/eml` | GET | Download as `.eml` |
+| `/emails/:id/read` · `/unread` · `/star` | POST | Flags |
+| `/emails/:id/archive` · `/unarchive` | POST | Archive state |
+| `/emails/:id/labels` | PUT | Replace labels |
+| `/emails/:id` | DELETE | Delete email + attachments (D1 and R2) |
+| `/emails/:id/attachments/:attachmentId` | GET | Download an attachment |
 
-1. Select **Compose**.
-2. Choose an authorized From address.
-3. Enter the recipient, subject, and message.
-4. Add attachments if needed.
-5. Select **Send**.
+### Contacts, push, setup
 
-The UI allows attachments up to 5 MB per file and 10 MB in total for an outgoing message.
-
-### Manage messages
-
-- Search inbox and sent messages
-- Filter unread or starred messages
-- Select individual or multiple messages
-- Mark inbox messages read or unread
-- Mark all inbox messages as read
-- Star or unstar messages
-- Delete selected messages
-- Switch between light and dark themes
-
-## Project Structure
-
-```text
-qmail/
-|-- frontend/
-|   |-- public/
-|   `-- src/
-|       |-- api/
-|       |-- router/
-|       |-- stores/
-|       `-- views/
-|-- packages/
-|   |-- worker/
-|   |   `-- src/
-|   |       |-- api/
-|   |       |-- db/
-|   |       |-- lib/
-|   |       `-- email-handler.ts
-|   |-- cloudflare-email-api/
-|   `-- brevo-api/
-|-- package.json
-|-- pnpm-workspace.yaml
-`-- README.md
-```
-
-## Security
-
-- Never commit `wrangler.toml`, `.dev.vars`, `.env`, `.wrangler`, API keys, database exports, or credentials.
-- Use a strong, unique QMail administrator password.
-- Enable two-factor authentication on Cloudflare, Brevo, and GitHub.
-- Restrict the Cloudflare token to the required account and zone.
-- Rotate Cloudflare and Brevo credentials immediately if they are exposed.
-- Review `git status` before every push.
-- Regularly update dependencies and export D1 backups.
-
-QMail stores setup credentials in its D1 database. Protect access to the Worker and Cloudflare account, and do not publish D1 exports.
+| Endpoint | Method | Description |
+|---|---|---|
+| `/contacts` | GET / POST | List / create (upserts by email) |
+| `/contacts/:id` | PUT / DELETE | Update / delete |
+| `/push/vapid-key` | GET | VAPID public key |
+| `/push/subscribe` · `/unsubscribe` | POST | Manage push subscriptions |
+| `/webhooks/brevo/:secret` | POST | Brevo delivery events (auto-registered; secret-guarded) |
+| `/setup/status` | GET | Configuration state |
+| `/setup/cloudflare` | POST | Connect Cloudflare + enable routing |
+| `/setup/cloudflare/worker-routing` | POST | Re-point the catch-all at the worker |
+| `/setup/brevo` | POST | Connect Brevo + register webhook |
+| `/setup/addresses` | GET / POST / DELETE | Manage From addresses |
+| `/setup/complete` | POST | Finish onboarding |
 
 ## Troubleshooting
 
-### `wrangler` is not found
+| Symptom | Fix |
+|---|---|
+| "Frontend assets not found" | Build before deploying: `pnpm -r build`, then redeploy |
+| Inbound mail not arriving | Settings → Cloudflare → **Fix Email Routing**; verify MX records and that the zone is active; `npx wrangler tail` to watch the worker |
+| Outbound rejected / in spam | Verify the sending domain (SPF/DKIM/DMARC) in Brevo |
+| No delivery badges on sent mail | Re-save the Brevo API key in Settings to (re)register the webhook |
+| 429 on login | Rate limit — wait 15 minutes (setup: 3/hour) |
+| Signed out after upgrading | Expected once (hashed session tokens) — sign in again |
+| Passkey missing on a new domain | Passkeys bind to the hostname; add one on the new host |
+| Scheduled email shows "failed" | Fix the Brevo config; the message is preserved under Drafts — edit and resend |
 
-Run Wrangler through the project dependency:
+## License
 
-```bash
-pnpm exec wrangler --version
-```
+MIT — see LICENSE.
 
-If dependencies are missing:
+## Support
 
-```bash
-pnpm install
-```
-
-### Email is not received
-
-1. Confirm the domain is active in Cloudflare.
-2. Confirm Email Routing is enabled.
-3. Verify the DNS records shown by Cloudflare.
-4. Confirm the catch-all rule targets the `qmail` Worker.
-5. Confirm the remote D1 schema was applied.
-6. Inspect logs:
-
-```bash
-pnpm --filter @qmail/worker tail
-```
-
-### Email cannot be sent
-
-1. Verify the Brevo API key.
-2. Confirm the domain is authenticated in Brevo.
-3. Confirm the From address is an authorized sender.
-4. Check Brevo transactional logs and account limits.
-5. Check SPF, DKIM, and DMARC for conflicts.
-
-### D1 reports `no such table`
-
-Apply the schema to the production database:
-
-```bash
-pnpm db:migrate:prod
-```
-
-### Login is rate limited
-
-Wait 15 minutes after five failed login attempts. Initial password setup is limited to three attempts per hour.
-
-## API Overview
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/api/health` | Worker health check |
-| `GET` | `/api/auth/status` | Authentication status |
-| `POST` | `/api/auth/setup` | Create administrator password |
-| `POST` | `/api/auth/login` | Sign in |
-| `POST` | `/api/auth/logout` | Sign out |
-| `GET` | `/api/emails` | List messages |
-| `GET` | `/api/emails/stats` | Message statistics |
-| `POST` | `/api/emails/bulk` | Bulk message action |
-| `POST` | `/api/emails/send` | Send through Brevo |
-| `GET` | `/api/emails/:id` | Read one message |
-| `DELETE` | `/api/emails/:id` | Delete one message |
-| `GET` | `/api/setup/status` | Setup status |
-| `POST` | `/api/setup/cloudflare` | Configure Email Routing |
-| `POST` | `/api/setup/brevo` | Validate and save Brevo key |
-
-## Official Documentation
-
-- [Cloudflare Workers](https://developers.cloudflare.com/workers/)
-- [Wrangler](https://developers.cloudflare.com/workers/wrangler/)
-- [Cloudflare D1](https://developers.cloudflare.com/d1/)
-- [Cloudflare Email Routing](https://developers.cloudflare.com/email-routing/)
-- [Cloudflare API Tokens](https://developers.cloudflare.com/fundamentals/api/get-started/create-token/)
-- [Brevo API key authentication](https://developers.brevo.com/docs/api-key-authentication)
-- [Brevo senders and domains](https://developers.brevo.com/docs/getting-started-with-senders-and-domains)
+Issues and feature requests: [GitHub Issues](https://github.com/DevURANIUM/QMail/issues).

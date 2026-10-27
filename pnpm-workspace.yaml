@@ -2,8 +2,12 @@ packages:
   - 'packages/*'
   - 'frontend'
 
+overrides:
+  esbuild: ">=0.28.1 <0.29.0"
+  postcss-selector-parser: "^7.1.6"
+  undici: "^7.30.1"
+
 allowBuilds:
   esbuild: true
-  sharp: true
-  vue-demi: true
   workerd: true
+  vue-demi: true
