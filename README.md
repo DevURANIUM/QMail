@@ -1,9 +1,5 @@
 # Qmail
 
-Qmail is the project name throughout the app, workspace packages, notifications and exports.
-Repository: https://github.com/DevURANIUM/QMail.
-The production Worker is `qmail`; deployment preserves its existing D1 binding.
-
 Self-hosted email on your own domain, running entirely on Cloudflare's edge.
 
 Receive mail through **Cloudflare Email Routing**, store it in a **D1** database
