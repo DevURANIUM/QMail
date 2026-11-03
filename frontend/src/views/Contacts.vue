@@ -10,6 +10,7 @@ const router = useRouter();
 const contacts = ref<Contact[]>([]);
 const isLoading = ref(true);
 const error = ref('');
+const deletingIds = ref(new Set<string>());
 const filter = ref('');
 
 // New contact form
@@ -94,9 +95,17 @@ async function saveEdit() {
 }
 
 async function removeContact(contact: Contact) {
-  if (!confirm(`Delete ${contact.name || contact.email}?`)) return;
-  await api.deleteContact(contact.id);
-  await load();
+  if (deletingIds.value.has(contact.id)) return;
+  error.value = '';
+  deletingIds.value.add(contact.id);
+  try {
+    await api.deleteContact(contact.id);
+    contacts.value = contacts.value.filter(item => item.id !== contact.id);
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : 'Failed to delete contact';
+  } finally {
+    deletingIds.value.delete(contact.id);
+  }
 }
 
 function composeTo(contact: Contact) {
@@ -121,7 +130,7 @@ function formatDate(dateStr: string): string {
       />
     </div>
 
-    <div v-if="error" class="alert-error mb-6">{{ error }}</div>
+    <div v-if="error" role="alert" class="alert-error mb-6">{{ error }}</div>
 
     <!-- Add contact -->
     <form class="contact-form card mb-6" @submit.prevent="addContact">
@@ -208,7 +217,7 @@ function formatDate(dateStr: string): string {
                   <path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
                 </svg>
               </button>
-              <button class="btn-icon !p-1.5 hover:text-danger" title="Delete" @click="removeContact(contact)">
+              <button class="btn-icon !p-1.5 hover:text-danger" title="Delete" :disabled="deletingIds.has(contact.id)" @click="removeContact(contact)">
                 <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                 </svg>
