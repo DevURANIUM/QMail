@@ -45,26 +45,33 @@ servers, free-tier friendly.
 
 ## Architecture
 
-```
-                        Cloudflare Edge
-┌────────────────────────────────────────────────────────────────┐
-│                                                                │
-│  Email Routing ──▶ Email Worker ──┬─▶ D1 (mail, contacts,      │
-│   (catch-all)                     │      settings, sessions,   │
-│                                   │      FTS index)            │
-│  Cron (*/5) ──▶ scheduled send ───┤                            │
-│                                   ├─▶ R2 (attachments,         │
-│  HTTPS ──▶ Worker (Hono API) ─────┘      optional)             │
-│              │                                                 │
-│              └─▶ Vue 3 SPA (static assets)                     │
-│                                                                │
-└──────────────┬─────────────────────────────┬───────────────────┘
-               │ send                        │ delivery webhooks
-               ▼                             │
-             Brevo ◀─────────────────────────┘
+```mermaid
+flowchart TB
+    Browser["Browser<br/>Vue 3 web app"]
 
-  Browser ◀── Web Push (VAPID, no payload) ── Email Worker
+    subgraph Cloudflare["Cloudflare Edge"]
+        direction TB
+        Routing["Email Routing<br/>Catch-all incoming mail"]
+        Cron["Cron trigger<br/>Every 5 minutes"]
+        Worker["Qmail Worker<br/>API + email handlers"]
+        D1[("D1 database<br/>Mail + app data<br/>Full-text search")]
+        R2[("R2 storage<br/>Optional attachments")]
+
+        Routing --> Worker
+        Cron --> Worker
+        Worker <--> D1
+        Worker <--> R2
+    end
+
+    Browser <-->|"HTTPS"| Worker
+    Worker <-->|"Send mail / delivery events"| Brevo["Brevo<br/>Transactional email"]
+    Worker -.->|"Web Push"| Browser
 ```
+
+The Worker serves the Vue app and API. Brevo handles outgoing mail and delivery
+webhooks. Attachments use R2 when configured, otherwise D1. Web Push uses VAPID
+and carries a generic notification with no email content.
+
 
 ## Quick start
 
