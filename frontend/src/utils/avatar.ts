@@ -6,7 +6,7 @@
 const AVATAR_COLORS = [
   '#2a63c9', // blue
   '#6d4fc4', // violet
-  '#0e8a6a', // teal
+  '#0e7c60', // teal
   '#c05621', // burnt orange
   '#b03274', // magenta
   '#5b7285', // slate

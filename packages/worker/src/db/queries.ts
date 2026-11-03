@@ -267,7 +267,7 @@ export class DatabaseQueries {
    * Full-text search across subject, body, and addresses (FTS5).
    * The query is normalized into quoted terms so FTS syntax can't error.
    */
-  async searchEmails(query: string, limit = 50): Promise<Email[]> {
+  async searchEmails(query: string, limit = 50, type?: 'received' | 'sent'): Promise<Email[]> {
     const terms = query
       .split(/\s+/)
       .map(t => t.replace(/["*^]/g, ''))
@@ -282,11 +282,11 @@ export class DatabaseQueries {
         `SELECT e.*, (SELECT COUNT(*) FROM attachments WHERE attachments.email_id = e.id) AS attachment_count
          FROM emails e
          JOIN emails_fts f ON e.rowid = f.rowid
-         WHERE emails_fts MATCH ?
+         WHERE emails_fts MATCH ?${type ? ' AND e.type = ?' : ''}
          ORDER BY rank
          LIMIT ?`
       )
-      .bind(terms, limit)
+      .bind(...(type ? [terms, type, limit] : [terms, limit]))
       .all<Email>();
     return results.results || [];
   }

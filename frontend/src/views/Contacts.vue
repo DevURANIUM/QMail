@@ -115,6 +115,7 @@ function formatDate(dateStr: string): string {
       <input
         v-model="filter"
         type="search"
+        aria-label="Filter contacts"
         placeholder="Filter contacts…"
         class="input !w-56"
       />
@@ -123,16 +124,24 @@ function formatDate(dateStr: string): string {
     <div v-if="error" class="alert-error mb-6">{{ error }}</div>
 
     <!-- Add contact -->
-    <form class="card p-4 mb-6" @submit.prevent="addContact">
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <input v-model="newEmail" type="email" placeholder="email@example.com" class="input" required />
-        <input v-model="newName" type="text" placeholder="Name (optional)" class="input" />
-        <div class="flex gap-3">
-          <input v-model="newNotes" type="text" placeholder="Notes (optional)" class="input flex-1" />
-          <button type="submit" class="btn btn-primary flex-shrink-0" :disabled="isSaving">
-            Add
-          </button>
+    <form class="contact-form card mb-6" @submit.prevent="addContact">
+      <div class="contact-fields">
+        <div class="min-w-0">
+          <label for="new-contact-email" class="contact-field-label">Email address</label>
+          <input id="new-contact-email" v-model="newEmail" type="email" autocomplete="email" dir="ltr" placeholder="email@example.com" class="input" required />
         </div>
+        <div class="min-w-0">
+          <label for="new-contact-name" class="contact-field-label">Name <span>optional</span></label>
+          <input id="new-contact-name" v-model="newName" type="text" autocomplete="name" dir="auto" placeholder="Contact name" class="input" />
+        </div>
+        <div class="min-w-0">
+          <label for="new-contact-notes" class="contact-field-label">Notes <span>optional</span></label>
+          <input id="new-contact-notes" v-model="newNotes" type="text" dir="auto" placeholder="A short note" class="input" />
+        </div>
+        <button type="submit" class="btn btn-primary contact-add" :disabled="isSaving">
+          <svg v-if="!isSaving" aria-hidden="true" class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24"><path stroke-linecap="round" d="M12 5v14M5 12h14" /></svg>
+          {{ isSaving ? 'Saving...' : 'Add' }}
+        </button>
       </div>
     </form>
 
@@ -211,3 +220,16 @@ function formatDate(dateStr: string): string {
     </div>
   </div>
 </template>
+
+<style scoped>
+.contact-form { padding: 16px; box-shadow: none; }
+.contact-fields { display: grid; grid-template-columns: 1.15fr 1fr 1fr auto; gap: 12px; align-items: end; }
+.contact-field-label { display: flex; align-items: baseline; gap: 6px; margin-bottom: 7px; color: var(--c-ink-2); font-size: 12px; font-weight: 500; }
+.contact-field-label span { color: var(--c-ink-3); font-size: 11px; font-weight: 400; }
+.contact-form .input { min-height: 38px; height: 38px; border-radius: 9px; background-color: var(--c-page); font-size: 13px; }
+.contact-add { align-self: end; min-height: 32px; height: 32px; padding: 0 11px; margin-bottom: 3px; gap: 5px; border-radius: 8px; font-size: 12px; box-shadow: none; }
+@media (max-width: 640px) {
+  .contact-fields { grid-template-columns: 1fr; gap: 14px; }
+  .contact-add { justify-self: end; margin-bottom: 0; }
+}
+</style>

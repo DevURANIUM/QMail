@@ -8,12 +8,20 @@ const props = withDefaults(defineProps<{
   variant?: 'inbox' | 'sent';
   compact?: boolean;
   grouped?: boolean;
+  selectable?: boolean;
+  selectedIds?: string[];
+  busy?: boolean;
+  messageActions?: boolean;
   /** In the Archive view the archive action means "put back" */
   archiveAction?: 'archive' | 'unarchive';
 }>(), {
   variant: 'inbox',
   compact: false,
   grouped: false,
+  selectable: false,
+  selectedIds: () => [],
+  busy: false,
+  messageActions: false,
   archiveAction: 'archive',
 });
 
@@ -23,6 +31,9 @@ const emit = defineEmits<{
   toggleRead: [id: string];
   archive: [id: string];
   delete: [id: string];
+  toggleSelection: [id: string];
+  reply: [id: string];
+  forward: [id: string];
 }>();
 
 const DELIVERY_BADGES: Record<string, { label: string; cls: string }> = {
@@ -124,6 +135,9 @@ const groups = computed<Group[]>(() => {
           ></span>
 
           <div class="px-4 flex items-center gap-3" :class="compact ? 'py-2.5' : 'py-3'">
+            <input v-if="selectable" type="checkbox" class="h-4 w-4 shrink-0 accent-accent"
+              :aria-label="`Select ${email.subject || '(No Subject)'}`" :checked="selectedIds.includes(email.id)"
+              :disabled="busy" @click.stop @change="emit('toggleSelection', email.id)" />
             <!-- Avatar -->
             <span
               class="flex-shrink-0 rounded-full flex items-center justify-center text-white font-medium select-none"
@@ -134,7 +148,8 @@ const groups = computed<Group[]>(() => {
             </span>
 
             <!-- Content -->
-            <div class="flex-1 min-w-0">
+            <a class="flex-1 min-w-0" :href="`/${email.type === 'sent' ? 'sent' : 'inbox'}/${encodeURIComponent(email.id)}`"
+              @click.stop.prevent="emit('open', email.id)">
               <div class="flex items-baseline justify-between gap-2">
                 <p class="text-sm truncate" :class="variant === 'inbox' && !email.is_read ? 'font-semibold text-ink' : 'font-medium text-ink-2'">
                   {{ displayName(email) }}
@@ -166,7 +181,7 @@ const groups = computed<Group[]>(() => {
                   </svg>
                   <span
                     class="text-xs text-ink-3 tabular-nums transition-opacity"
-                    :class="compact ? '' : 'md:group-hover:opacity-0'"
+                    :class="compact ? '' : 'md:group-hover:opacity-0 md:group-focus-within:opacity-0'"
                   >
                     {{ formatDate(email.created_at) }}
                   </span>
@@ -186,15 +201,21 @@ const groups = computed<Group[]>(() => {
                   {{ label }}
                 </span>
               </div>
-            </div>
+            </a>
           </div>
 
           <!-- Hover quick actions -->
           <div
             v-if="!compact"
-            class="hidden md:flex absolute right-3 top-1/2 -translate-y-1/2 items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity bg-surface-2 rounded-lg pl-1"
+            class="flex justify-end px-3 pb-2 md:p-0 md:absolute md:right-3 md:top-1/2 md:-translate-y-1/2 items-center gap-0.5 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity bg-surface-2 rounded-lg"
             @click.stop
           >
+            <button v-if="messageActions" type="button" class="btn-icon !p-1.5" title="Reply" :disabled="busy" @click="emit('reply', email.id)">
+              <svg aria-hidden="true" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" /></svg>
+            </button>
+            <button v-if="messageActions" type="button" class="btn-icon !p-1.5" title="Forward" :disabled="busy" @click="emit('forward', email.id)">
+              <svg aria-hidden="true" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M21 10H11a8 8 0 00-8 8v2m18-10-6-6m6 6-6 6" /></svg>
+            </button>
             <button
               v-if="variant === 'inbox'"
               class="btn-icon !p-1.5"
@@ -232,6 +253,8 @@ const groups = computed<Group[]>(() => {
             <button
               class="btn-icon !p-1.5 hover:text-danger"
               title="Delete"
+              type="button"
+              :disabled="busy"
               @click="emit('delete', email.id)"
             >
               <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24">

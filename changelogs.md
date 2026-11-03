@@ -2,6 +2,30 @@
 
 Notable user-facing changes to Qmail.
 
+## 2026-11-03
+
+### UI follow-up
+
+- Compact contact creation form with labeled fields, a smaller Add button and responsive mobile layout.
+
+- Live Inbox and Sent search after a 300ms typing pause, without a Search button. Ignore stale responses and cancel pending work on clear/unmount.
+- Themed rounded checkboxes with checked, mixed, focus and disabled states, plus native high-contrast fallback.
+- Replies start with a clean editor; the original message sits in a collapsed, keyboard-accessible disclosure underneath. Quote text is preserved in sends and drafts.
+
+### Added
+
+- Search within sent mail, with reply and forward actions in mailbox rows and search results.
+- Select visible sent messages and delete them together after confirmation; failed deletions remain available for retry.
+- Reply from the sent-message view to the original recipient, with incoming replies honoring Reply-To and the matching sender alias.
+- Safe quoted text for HTML-only messages.
+
+### Fixed
+
+- Connected the sent-row delete button to the existing attachment-aware deletion API.
+- Connected delete, archive and read actions in global search results and remove deleted results immediately.
+- Scope sent-mail searches before limiting results; prevent stale search responses after clearing.
+- Expose row actions on mobile and keyboard focus, with keyboard-accessible message links.
+
 ## 2026-08-09
 
 ### Added

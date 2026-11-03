@@ -159,8 +159,8 @@ class ApiClient {
     return this.request('GET', `/emails${query ? `?${query}` : ''}`);
   }
 
-  async searchEmails(q: string): Promise<{ emails: Email[] }> {
-    return this.request('GET', `/emails/search?q=${encodeURIComponent(q)}`);
+  async searchEmails(q: string, type?: 'received' | 'sent'): Promise<{ emails: Email[] }> {
+    return this.request('GET', `/emails/search?q=${encodeURIComponent(q)}${type ? `&type=${type}` : ''}`);
   }
 
   async getFolders(): Promise<{ folders: { id: string; name: string; count: number }[] }> {

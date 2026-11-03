@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, computed, ref } from 'vue';
+import { onMounted, onUnmounted, computed, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useEmailsStore } from '@/stores/emails';
 import api from '@/api/client';
@@ -10,8 +10,20 @@ const router = useRouter();
 const emailsStore = useEmailsStore();
 
 const searchQuery = ref('');
+const activeQuery = ref('');
 const searchResults = ref<Email[] | null>(null);
 const isSearching = ref(false);
+const error = ref('');
+let searchVersion = 0;
+let searchTimer: ReturnType<typeof setTimeout> | undefined;
+watch(searchQuery, query => {
+  clearTimeout(searchTimer);
+  ++searchVersion;
+  if (!query.trim()) { clearSearch(); return; }
+  isSearching.value = true;
+  searchTimer = setTimeout(runSearch, 300);
+}, { flush: 'sync' });
+onUnmounted(() => { clearTimeout(searchTimer); ++searchVersion; });
 
 onMounted(async () => {
   await emailsStore.fetchEmails('received');
@@ -25,44 +37,72 @@ function openEmail(id: string) {
 }
 
 async function toggleStar(id: string) {
+  const result = searchResults.value?.find(email => email.id === id);
+  const starred = result?.is_starred === 1;
   await emailsStore.toggleStar(id);
+  if (result) result.is_starred = starred ? 0 : 1;
 }
 
 async function toggleRead(id: string) {
-  const email = emailsStore.emails.find(e => e.id === id);
-  if (email?.is_read) {
+  const email = searchResults.value?.find(e => e.id === id) || emailsStore.emails.find(e => e.id === id);
+  const wasRead = email?.is_read === 1;
+  if (wasRead) {
     await emailsStore.markAsUnread(id);
   } else {
     await emailsStore.markAsRead(id);
   }
+  if (email) email.is_read = wasRead ? 0 : 1;
 }
 
 async function archiveEmail(id: string) {
   await api.archiveEmail(id);
   emailsStore.emails = emailsStore.emails.filter(e => e.id !== id);
+  if (searchResults.value) searchResults.value = searchResults.value.filter(email => email.id !== id);
   await emailsStore.fetchStats();
 }
 
 async function deleteEmail(id: string) {
-  await emailsStore.deleteEmail(id);
+  error.value = '';
+  try {
+    await emailsStore.deleteEmail(id);
+    if (searchResults.value) searchResults.value = searchResults.value.filter(email => email.id !== id);
+  } catch (e) { error.value = e instanceof Error ? e.message : 'Delete failed'; }
+}
+
+function composeFrom(id: string, action: 'replyTo' | 'forward') {
+  router.push({ name: 'compose', query: { [action]: id } });
 }
 
 async function runSearch() {
+  clearTimeout(searchTimer);
   const q = searchQuery.value.trim();
   if (!q) {
-    searchResults.value = null;
+    clearSearch();
     return;
   }
+  const version = ++searchVersion;
   isSearching.value = true;
+  error.value = '';
   try {
-    searchResults.value = (await api.searchEmails(q)).emails;
+    const result = await api.searchEmails(q);
+    if (version === searchVersion) {
+      searchResults.value = result.emails;
+      activeQuery.value = q;
+    }
+  } catch (e) {
+    if (version === searchVersion) error.value = e instanceof Error ? e.message : 'Search failed';
   } finally {
-    isSearching.value = false;
+    if (version === searchVersion) isSearching.value = false;
   }
 }
 
 function clearSearch() {
+  clearTimeout(searchTimer);
+  ++searchVersion;
+  isSearching.value = false;
+  error.value = '';
   searchQuery.value = '';
+  activeQuery.value = '';
   searchResults.value = null;
 }
 </script>
@@ -79,6 +119,7 @@ function clearSearch() {
           <input
             v-model="searchQuery"
             type="search"
+            aria-label="Search mail"
             placeholder="Search mail…"
             class="input !w-64 !pl-9"
             @keyup.esc="clearSearch"
@@ -93,24 +134,28 @@ function clearSearch() {
       </div>
     </div>
 
+    <p v-if="isSearching" role="status" class="text-xs text-ink-3 mb-3">Searching...</p>
+    <p v-if="error" role="alert" class="alert-error mb-4">{{ error }}</p>
+
     <!-- Search results -->
     <template v-if="searchResults !== null">
       <div class="flex items-center justify-between mb-4">
         <p class="text-sm text-ink-2">
           {{ searchResults.length }} result{{ searchResults.length === 1 ? '' : 's' }} for
-          "<span class="text-ink font-medium">{{ searchQuery }}</span>"
+          "<span class="text-ink font-medium">{{ activeQuery }}</span>"
         </p>
         <button class="text-sm text-accent hover:text-accent-hover font-medium" @click="clearSearch">
           Back to inbox
         </button>
       </div>
-      <div v-if="isSearching" class="flex justify-center py-12"><div class="spinner"></div></div>
-      <div v-else-if="searchResults.length === 0" class="card text-center py-16">
+      <div v-if="searchResults.length === 0" class="card text-center py-16">
         <h3 class="text-sm font-medium text-ink">No matches</h3>
         <p class="mt-1 text-sm text-ink-3">Search covers subjects, bodies, and addresses.</p>
       </div>
       <div v-else class="card overflow-hidden">
-        <EmailList :emails="searchResults" variant="inbox" @open="openEmail" @toggle-star="toggleStar" />
+        <EmailList :emails="searchResults" variant="inbox" message-actions @open="openEmail" @toggle-star="toggleStar"
+          @toggle-read="toggleRead" @archive="archiveEmail" @delete="deleteEmail"
+          @reply="id => composeFrom(id, 'replyTo')" @forward="id => composeFrom(id, 'forward')" />
       </div>
     </template>
 
@@ -136,6 +181,9 @@ function clearSearch() {
           :emails="emails"
           variant="inbox"
           grouped
+          message-actions
+          @reply="id => composeFrom(id, 'replyTo')"
+          @forward="id => composeFrom(id, 'forward')"
           @open="openEmail"
           @toggle-star="toggleStar"
           @toggle-read="toggleRead"

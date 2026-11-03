@@ -402,3 +402,37 @@ body {
   padding-inline-start: 0.75rem;
   color: #50617b;
 }
+
+/* Keep native checkbox semantics and keyboard interaction with themed chrome. */
+input[type='checkbox'] {
+  --check-mark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none'%3E%3Cpath d='m5 10 3.25 3.25L15 6.5' stroke='white' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  --check-mixed: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='M5.5 10h9' stroke='white' stroke-width='2.2' stroke-linecap='round'/%3E%3C/svg%3E");
+  appearance: none;
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  border: 1px solid var(--c-edge-2);
+  border-radius: 6px;
+  background-color: var(--c-surface-2);
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: 18px;
+  vertical-align: middle;
+  cursor: pointer;
+  transition: background-color .15s, border-color .15s, box-shadow .15s;
+}
+.dark input[type='checkbox'] {
+  --check-mark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none'%3E%3Cpath d='m5 10 3.25 3.25L15 6.5' stroke='%2310223e' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  --check-mixed: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='M5.5 10h9' stroke='%2310223e' stroke-width='2.2' stroke-linecap='round'/%3E%3C/svg%3E");
+}
+input[type='checkbox']:hover:not(:disabled) { border-color: var(--c-accent); box-shadow: 0 0 0 3px var(--c-accent-soft); }
+input[type='checkbox']:checked, input[type='checkbox']:indeterminate { background-color: var(--c-accent); border-color: var(--c-accent); }
+input[type='checkbox']:checked { background-image: var(--check-mark); }
+input[type='checkbox']:indeterminate { background-image: var(--check-mixed); }
+input[type='checkbox']:focus-visible { outline: 2px solid var(--c-accent); outline-offset: 3px; }
+input[type='checkbox']:disabled { cursor: not-allowed; opacity: .45; }
+@media (prefers-reduced-motion: reduce) { input[type='checkbox'] { transition: none; } }
+@media (forced-colors: active) {
+  input[type='checkbox'] { appearance: auto; -webkit-appearance: auto; background-image: none; }
+}

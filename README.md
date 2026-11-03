@@ -21,6 +21,8 @@ servers, free-tier friendly.
 - Catch-all receiving on your domain — every address at your domain lands in one inbox
 - Sending via Brevo's transactional API, with delivery tracking (delivered / opened / bounced) reported back by webhook
 - Conversation threading via `Message-ID` / `In-Reply-To` headers
+- Sent-mail search, visible-message selection and bulk deletion with confirmation and partial-failure recovery
+- Reply and forward directly from mailbox rows or search results; sent replies target the original recipient
 - Drafts, reply-with-quote, forwarding (original attachments included), and scheduled send (cron-delivered)
 - Archive, labels, starring, and full-text search (SQLite FTS5 over subjects, bodies, and addresses)
 - Attachments up to 5MB/file in D1, or 25MB/file with an optional R2 bucket

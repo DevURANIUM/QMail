@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
+import DOMPurify from 'dompurify';
+import { mailboxAddress, replyRecipient, splitReplyQuote } from '@/utils/mailReply';
 import { textDirection } from '@/utils/textDirection';
 import SchedulePicker from '@/components/SchedulePicker.vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -17,6 +19,7 @@ const cc = ref('');
 const bcc = ref('');
 const subject = ref('');
 const body = ref('');
+const quotedReply = ref<{ text: string; header: string; subject: string } | null>(null);
 const showCc = ref(false);
 const showBcc = ref(false);
 const isSending = ref(false);
@@ -48,6 +51,20 @@ const attachments = ref<AttachmentFile[]>([]);
 const fileInputRef = ref<HTMLInputElement | null>(null);
 const MAX_ATTACHMENT_SIZE = 5 * 1024 * 1024; // 5MB per file
 const MAX_TOTAL_SIZE = 10 * 1024 * 1024; // 10MB total
+
+function messageText(email: { body_text: string | null; body_html: string | null }): string {
+  if (email.body_text) return email.body_text;
+  if (!email.body_html) return '';
+  // Quoting HTML-only mail must neither execute markup nor load tracking images.
+  const template = document.createElement('template');
+  template.innerHTML = DOMPurify.sanitize(email.body_html, {
+    ALLOWED_TAGS: ['p', 'div', 'br', 'li', 'ul', 'ol', 'blockquote', 'h1', 'h2', 'h3', 'span', 'a', 'strong', 'em', 'b', 'i', 'pre', 'table', 'tr', 'td'],
+    ALLOWED_ATTR: [],
+  });
+  template.content.querySelectorAll('br').forEach(node => node.replaceWith('\n'));
+  template.content.querySelectorAll('p, div, li, blockquote, h1, h2, h3, tr').forEach(node => node.append('\n'));
+  return template.content.textContent?.trim() || '';
+}
 
 function quoteBody(text: string, header: string): string {
   const quoted = (text || '').split('\n').map(line => `> ${line}`).join('\n');
@@ -93,6 +110,11 @@ onMounted(async () => {
       bcc.value = draft.bcc || '';
       subject.value = draft.subject || '';
       body.value = draft.body_text || '';
+      const savedQuote = /^re:/i.test(draft.subject || '') ? splitReplyQuote(body.value) : null;
+      if (savedQuote) {
+        body.value = savedQuote.body;
+        quotedReply.value = { text: savedQuote.quote, header: savedQuote.header, subject: (draft.subject || '').replace(/^re:\s*/i, '') };
+      }
       showCc.value = !!draft.cc;
       showBcc.value = !!draft.bcc;
       if (draft.delivery_status === 'failed') {
@@ -109,14 +131,16 @@ onMounted(async () => {
     try {
       const original = await api.getEmail(route.query.replyTo as string);
       replyToEmailId.value = original.id;
-      to.value = original.from_address;
-      subject.value = original.subject?.startsWith('Re:') ? original.subject : `Re: ${original.subject || ''}`;
+      to.value = replyRecipient(original);
+      const ownAddress = original.type === 'sent' ? original.from_address : original.to_address;
+      const matchingAddress = addresses.value.find(address => address.address.toLowerCase() === mailboxAddress(ownAddress).toLowerCase());
+      if (matchingAddress) from.value = matchingAddress.address;
+      subject.value = /^re:/i.test(original.subject || '') ? (original.subject || '') : `Re: ${original.subject || ''}`;
       const when = new Date(original.created_at.includes('T') ? original.created_at : `${original.created_at.replace(' ', 'T')}Z`).toLocaleString();
-      body.value = quoteBody(original.body_text || '', `On ${when}, ${original.from_address} wrote:`);
+      quotedReply.value = { text: messageText(original), header: `On ${when}, ${original.from_address} wrote:`, subject: original.subject || '(No Subject)' };
+      body.value = '';
     } catch {
-      // Fall back to legacy query params
-      if (route.query.to) to.value = route.query.to as string;
-      if (route.query.subject) subject.value = route.query.subject as string;
+      error.value = 'Could not load the message to reply to. Please go back and try again.';
     }
     return;
   }
@@ -126,10 +150,10 @@ onMounted(async () => {
     try {
       const original = await api.getEmail(route.query.forward as string);
       forwardOfEmailId.value = original.id;
-      subject.value = original.subject?.startsWith('Fwd:') ? original.subject : `Fwd: ${original.subject || ''}`;
+      subject.value = /^(?:fwd|fw):/i.test(original.subject || '') ? (original.subject || '') : `Fwd: ${original.subject || ''}`;
       const when = new Date(original.created_at.includes('T') ? original.created_at : `${original.created_at.replace(' ', 'T')}Z`).toLocaleString();
       body.value = quoteBody(
-        original.body_text || '',
+        messageText(original),
         `---------- Forwarded message ----------\nFrom: ${original.from_address}\nDate: ${when}\nSubject: ${original.subject || ''}\nTo: ${original.to_address}\n`
       );
       if (original.attachments && original.attachments.length > 0) {
@@ -145,6 +169,10 @@ onMounted(async () => {
   if (route.query.to) to.value = route.query.to as string;
   if (route.query.subject) subject.value = route.query.subject as string;
 });
+
+function outgoingText(): string {
+  return body.value + (quotedReply.value ? quoteBody(quotedReply.value.text, quotedReply.value.header) : '');
+}
 
 function escapeHtml(text: string): string {
   return text
@@ -193,9 +221,9 @@ async function sendEmail() {
       cc: cc.value || undefined,
       bcc: bcc.value || undefined,
       subject: subject.value,
-      text: body.value,
+      text: outgoingText(),
       // Escape before converting newlines so typed markup stays literal text
-      html: `<p dir="${textDirection(body.value)}" style="text-align: start; font-family: Vazirmatn, Tahoma, Arial, sans-serif; line-height: 1.9;">${escapeHtml(body.value).replace(/\n/g, '<br>')}</p>`,
+      html: `<p dir="${textDirection(outgoingText())}" style="text-align: start; font-family: Vazirmatn, Tahoma, Arial, sans-serif; line-height: 1.9;">${escapeHtml(outgoingText()).replace(/\n/g, '<br>')}</p>`,
       attachments: attachmentData.length > 0 ? attachmentData : undefined,
       draftId: draftId.value || undefined,
       scheduleAt: scheduleIso,
@@ -228,8 +256,8 @@ async function saveDraft() {
       cc: cc.value || undefined,
       bcc: bcc.value || undefined,
       subject: subject.value || undefined,
-      text: body.value || undefined,
-      html: body.value ? `<p dir="${textDirection(body.value)}" style="text-align: start; font-family: Vazirmatn, Tahoma, Arial, sans-serif; line-height: 1.9;">${escapeHtml(body.value).replace(/\n/g, '<br>')}</p>` : undefined,
+      text: outgoingText() || undefined,
+      html: outgoingText() ? `<p dir="${textDirection(outgoingText())}" style="text-align: start; font-family: Vazirmatn, Tahoma, Arial, sans-serif; line-height: 1.9;">${escapeHtml(outgoingText()).replace(/\n/g, '<br>')}</p>` : undefined,
     });
     draftId.value = result.id;
     notice.value = 'Draft saved.';
@@ -414,6 +442,19 @@ function getTotalAttachmentSize(): number {
             class="input message-editor resize-y leading-relaxed"
           ></textarea>
         </div>
+
+        <details v-if="quotedReply" class="group rounded-xl border border-edge bg-surface-2 overflow-hidden">
+          <summary class="flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm font-medium text-ink-2 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent [&::-webkit-details-marker]:hidden">
+            <svg aria-hidden="true" class="h-4 w-4 shrink-0 transition-transform group-open:rotate-90" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="m9 5 7 7-7 7" /></svg>
+            Original message
+            <span class="ml-auto text-xs font-normal text-ink-3">Reply context</span>
+          </summary>
+          <div class="border-t border-edge px-4 py-4">
+            <p dir="auto" class="font-medium text-sm text-ink text-start">{{ quotedReply.subject }}</p>
+            <p class="mt-1 text-xs text-ink-3">{{ quotedReply.header }}</p>
+            <pre :dir="textDirection(quotedReply.text)" class="email-plain mt-3 whitespace-pre-wrap font-sans text-sm text-ink-2 max-h-72 overflow-auto">{{ quotedReply.text }}</pre>
+          </div>
+        </details>
 
         <!-- Attachments -->
         <div>

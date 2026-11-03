@@ -93,6 +93,23 @@ export const useEmailsStore = defineStore('emails', () => {
     await fetchStats();
   }
 
+  async function deleteEmails(ids: string[]): Promise<{ deleted: string[]; failed: string[] }> {
+    const uniqueIds = [...new Set(ids)];
+    const deleted: string[] = [];
+    const failed: string[] = [];
+    // Bound concurrency; use the existing attachment-aware delete endpoint.
+    for (let index = 0; index < uniqueIds.length; index += 5) {
+      const batch = uniqueIds.slice(index, index + 5);
+      const results = await Promise.allSettled(batch.map(id => api.deleteEmail(id)));
+      results.forEach((result, i) => (result.status === 'fulfilled' ? deleted : failed).push(batch[i]));
+    }
+    const removed = new Set(deleted);
+    emails.value = emails.value.filter(email => !removed.has(email.id));
+    if (currentEmail.value && removed.has(currentEmail.value.id)) currentEmail.value = null;
+    await fetchStats();
+    return { deleted, failed };
+  }
+
   function setView(view: 'inbox' | 'sent' | 'starred') {
     currentView.value = view;
   }
@@ -118,6 +135,7 @@ export const useEmailsStore = defineStore('emails', () => {
     markAsUnread,
     toggleStar,
     deleteEmail,
+    deleteEmails,
     setView,
     clearCurrentEmail,
   };

@@ -145,7 +145,11 @@ emails.get('/search', async (c) => {
     if (!q.trim()) {
       return c.json({ emails: [] });
     }
-    const results = await db.searchEmails(q, 50);
+    const type = c.req.query('type');
+    if (type && type !== 'received' && type !== 'sent') {
+      return c.json({ error: 'Invalid search mailbox' }, 400);
+    }
+    const results = await db.searchEmails(q, 50, type === 'sent' || type === 'received' ? type : undefined);
     return c.json({ emails: results });
   } catch (error) {
     console.error('Search error:', error);
